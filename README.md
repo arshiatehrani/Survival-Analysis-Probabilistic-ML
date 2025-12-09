@@ -58,12 +58,13 @@ jupyter notebook model_inference.ipynb
 Citation
 --------
 ```
-@article{lillelund_efficient_2024,
-  author={Lillelund, Christian Marius and Magris, Martin and Pedersen, Christian Fischer},
-  journal={IEEE Journal of Biomedical and Health Informatics}, 
-  title={Efficient Training of Probabilistic Neural Networks for Survival Analysis}, 
-  year={2024},
-  pages={1-10},
-  doi={10.1109/JBHI.2024.3417369}
+@article{lillelund_efficient_2025,
+    author={Lillelund, Christian M. and Magris, Martin and Pedersen, Christian F.},
+    journal={IEEE Journal of Biomedical and Health Informatics}, 
+    title={{Efficient Training of Probabilistic Neural Networks for Survival Analysis}},
+    volume    = {29},
+    number    = {9},
+    pages     = {6157--6166},
+    year      = {2025},
 }
 ```
