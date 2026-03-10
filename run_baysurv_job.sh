@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-06:00:00             # walltime (D-HH:MM:SS)
+#SBATCH --time=0-02:00:00             # walltime (D-HH:MM:SS)
 #SBATCH --account=def-bakhshai
 #SBATCH --mem=32000                   # 32 GB RAM
 #SBATCH --gpus-per-node=h100:1        # 1 H100 GPU
