@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=baysurv_train
-#SBATCH --time=0-12:00:00             # walltime (D-HH:MM:SS)
+#SBATCH --job-name=elec888_train
+#SBATCH --time=0-06:00:00             # walltime (D-HH:MM:SS)
 #SBATCH --account=def-bakhshai
 #SBATCH --mem=32000                   # 32 GB RAM
 #SBATCH --gpus-per-node=h100:1        # 1 H100 GPU
@@ -19,11 +19,11 @@ nvidia-smi
 ############################
 
 # Adjust these module names to match your cluster configuration
-module load python/3.10
+module load python/3.11.5
 module load cuda
 module load cudnn
-module load opencv
-module load r
+module load opencv/4.13.0
+module load r/4.5.0
 
 ############################
 # 2. Activate environment  #
@@ -40,7 +40,7 @@ python -c "import tensorflow as tf; print('TF version:', tf.__version__)"
 ############################
 
 # TODO: update this path to where the project is located on the cluster
-cd /home/arshiat/projects/Survival-Analysis-Probabilistic-ML
+cd /home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML
 
 echo "Current directory: $(pwd)"
 echo "Data files in ./data:"
