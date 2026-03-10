@@ -19,11 +19,11 @@ scikit-survival
 scikit-multilearn
 sklearn-pandas
 lifelines
-auton-survival
+auton-survival 
 
 ##############################
 # Deep learning
-##############################
+###############################
 tensorflow
 tensorflow-probability
 tf-models-official
