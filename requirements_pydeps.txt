@@ -1,0 +1,51 @@
+##############################
+# Core numeric / data
+##############################
+# numpy
+pandas
+scipy
+
+##############################
+# Plotting
+##############################
+matplotlib
+seaborn
+
+##############################
+# Classical ML / survival
+##############################
+scikit-learn
+scikit-survival
+scikit-multilearn
+# sklearn-pandas
+lifelines
+auton-survival
+
+##############################
+# Deep learning
+##############################
+tensorflow
+tensorflow-probability
+tf-models-official
+torch
+torchvision
+pycox
+
+##############################
+# Utilities / tooling
+##############################
+pyyaml
+joblib
+wandb
+tqdm
+pyarrow
+
+##############################
+# Optional extras
+##############################
+# Notebook support (only if you run notebooks)
+notebook
+
+# R interface (requires a system R installation)
+# rpy2
+
