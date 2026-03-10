@@ -27,9 +27,9 @@ auton-survival
 tensorflow
 tensorflow-probability
 tf-models-official
-torch
-torchvision
-pycox
+# torch
+# torchvision
+# pycox
 
 ##############################
 # Utilities / tooling
