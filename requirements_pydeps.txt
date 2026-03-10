@@ -1,7 +1,7 @@
 ##############################
 # Core numeric / data
 ##############################
-# numpy
+numpy
 pandas
 scipy
 
@@ -23,13 +23,12 @@ lifelines
 
 ##############################
 # Deep learning
-###############################
-tensorflow
-tensorflow-probability
+##############################
+tensorflowtensorflow-probability
 tf-models-official
-# torch
-# torchvision
-# pycox
+torch
+torchvision
+pycox
 
 ##############################
 # Utilities / tooling
