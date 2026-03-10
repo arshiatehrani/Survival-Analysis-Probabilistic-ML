@@ -17,7 +17,7 @@ seaborn
 scikit-learn
 scikit-survival
 scikit-multilearn
-# sklearn-pandas
+sklearn-pandas
 lifelines
 auton-survival
 
@@ -47,5 +47,5 @@ pyarrow
 notebook
 
 # R interface (requires a system R installation)
-# rpy2
+rpy2
 
