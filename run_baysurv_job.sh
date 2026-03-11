@@ -26,21 +26,25 @@ module load opencv/4.13.0
 module load r/4.5.0
 
 ############################
-# 2. Activate environment  #
+# 2. Create venv and install from requirements_cc.txt (no network) #
 ############################
 
-# TODO: update this path if your env name/path is different
-source ~/envs/elec888_env/bin/activate
+VENV_DIR="$SLURM_TMPDIR/baysurv_env"d
+virtualenv --no-download "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+
+pip install --no-index --upgrade pip
+
+# Project dir must be current so requirements_cc.txt is found
+cd /home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML
+pip install --no-index -r requirements_cc.txt
 
 python -V
-python -c "import tensorflow as tf; print('TF version:', tf.__version__)"
+python -c "import tensorflow as tf; print('TF version:', tf.__version__, 'GPUs:', tf.config.list_physical_devices('GPU'))"
 
 ############################
-# 3. Go to project folder  #
+# 3. Project folder is already current #
 ############################
-
-# TODO: update this path to where the project is located on the cluster
-cd /home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML
 
 echo "Current directory: $(pwd)"
 echo "Data files in ./data:"
