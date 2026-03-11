@@ -4,11 +4,12 @@ paths.py
 Module to hold paths of files.
 """
 
+import os
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).absolute().parent
 MODELS_DIR = Path.joinpath(ROOT_DIR, 'models')
-DATA_DIR = Path.joinpath(ROOT_DIR, 'data')
+DATA_DIR = Path(os.environ.get('BAYSURV_DATA_DIR', str(Path.joinpath(ROOT_DIR, 'data'))))
 CONFIGS_DIR = Path.joinpath(ROOT_DIR, 'configs')
 MLP_CONFIGS_DIR = Path.joinpath(CONFIGS_DIR, 'mlp')
 RSF_CONFIGS_DIR = Path.joinpath(CONFIGS_DIR, 'rsf')
