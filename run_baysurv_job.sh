@@ -2,7 +2,7 @@
 #SBATCH --job-name=elec888_train
 #SBATCH --time=0-00:30:00             # walltime (D-HH:MM:SS)
 #SBATCH --account=def-bakhshai
-#SBATCH --mem=32000                   # 32 GB RAM
+#SBATCH --mem=16384                   # 16 GB RAM
 #SBATCH --gpus-per-node=h100:1        # 1 H100 GPU
 #SBATCH --cpus-per-task=8             # CPU cores
 #SBATCH --ntasks-per-node=1
