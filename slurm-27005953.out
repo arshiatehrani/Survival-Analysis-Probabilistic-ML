@@ -1,0 +1,85 @@
+Job started on Tue Mar 10 14:05:00 PDT 2026
+Tue Mar 10 14:05:00 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.65.06              Driver Version: 580.65.06      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100 80GB HBM3          On  |   00000000:46:00.0 Off |                    0 |
+| N/A   22C    P0             67W /  700W |       0MiB /  81559MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+Python 3.11.5
+2026-03-10 14:06:16.664162: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-03-10 14:06:36.028964: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:485] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-03-10 14:06:38.165090: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:8454] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-03-10 14:06:39.223491: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1452] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-03-10 14:06:54.104082: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-03-10 14:08:42.052680: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+TF version: 2.17.0
+Current directory: /home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML
+Data files in ./data:
+load_mimic.py
+load_seer.py
+metabric.feather
+mimic.csv
+seer.csv
+support.feather
+Starting train_sota_models.py at Tue Mar 10 14:10:56 PDT 2026
+2026-03-10 14:10:56.989266: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-03-10 14:10:57.002656: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:485] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-03-10 14:10:57.015343: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:8454] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-03-10 14:10:57.019241: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1452] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-03-10 14:10:57.031259: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-03-10 14:10:59.055658: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+Traceback (most recent call last):
+  File "/home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML/train_sota_models.py", line 8, in <module>
+    from utility.survival import make_time_bins, calculate_event_times, calculate_percentiles, compute_deterministic_survival_curve
+  File "/home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML/utility/survival.py", line 9, in <module>
+    import torch
+  File "/home/arshiat/envs/elec888_env/lib/python3.11/site-packages/torch/__init__.py", line 431, in <module>
+    from torch._C import *  # noqa: F403
+    ^^^^^^^^^^^^^^^^^^^^^^
+ImportError: /home/arshiat/envs/elec888_env/lib/python3.11/site-packages/torch/lib/libc10_cuda.so: undefined symbol: cudaGetDriverEntryPointByVersion, version libcudart.so.12
+Starting train_bnn_models.py at Tue Mar 10 14:11:22 PDT 2026
+2026-03-10 14:11:23.565066: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-03-10 14:11:23.578229: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:485] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+2026-03-10 14:11:23.591388: E external/local_xla/xla/stream_executor/cuda/cuda_dnn.cc:8454] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+2026-03-10 14:11:23.595370: E external/local_xla/xla/stream_executor/cuda/cuda_blas.cc:1452] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2026-03-10 14:11:23.607637: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI AVX512_BF16 FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-03-10 14:11:25.696301: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Could not find TensorRT
+Traceback (most recent call last):
+  File "/home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML/train_bnn_models.py", line 10, in <module>
+    from tools.baysurv_trainer import Trainer
+  File "/home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML/tools/baysurv_trainer.py", line 4, in <module>
+    from utility.loss import CoxPHLoss, CoxPHLossGaussian
+  File "/home/arshiat/projects/elec888/Survival-Analysis-Probabilistic-ML/utility/loss.py", line 3, in <module>
+    import tensorflow_probability as tfp
+  File "/home/arshiat/envs/elec888_env/lib/python3.11/site-packages/tensorflow_probability/__init__.py", line 22, in <module>
+    from tensorflow_probability.python import *  # pylint: disable=wildcard-import
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arshiat/envs/elec888_env/lib/python3.11/site-packages/tensorflow_probability/python/__init__.py", line 152, in <module>
+    dir(globals()[pkg_name])  # Forces loading the package from its lazy loader.
+    ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/arshiat/envs/elec888_env/lib/python3.11/site-packages/tensorflow_probability/python/internal/lazy_loader.py", line 60, in __dir__
+    module = self._load()
+             ^^^^^^^^^^^^
+  File "/home/arshiat/envs/elec888_env/lib/python3.11/site-packages/tensorflow_probability/python/internal/lazy_loader.py", line 40, in _load
+    self._on_first_access()
+  File "/home/arshiat/envs/elec888_env/lib/python3.11/site-packages/tensorflow_probability/python/__init__.py", line 59, in _validate_tf_environment
+    raise ImportError(
+ImportError: This version of TensorFlow Probability requires TensorFlow version >= 2.18; Detected an installation of version 2.17.0. Please upgrade TensorFlow to proceed.
+Job finished on Tue Mar 10 14:11:30 PDT 2026
