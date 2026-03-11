@@ -1,0 +1,43 @@
+# ---- Base image ----
+    FROM python:3.9-slim
+
+    # Prevent Python from buffering logs
+    ENV PYTHONUNBUFFERED=1
+    
+    # Working directory
+    WORKDIR /app
+    
+    # ---- Install system dependencies ----
+    RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        g++ \
+        git \
+        curl \
+        wget \
+        openjdk-17-jdk \
+        r-base \
+        r-base-dev \
+        libopenmpi-dev \
+        openmpi-bin \
+        libopencv-dev \
+        libarrow-dev \
+        libssl-dev \
+        libffi-dev \
+        libxml2-dev \
+        libcurl4-openssl-dev \
+        && rm -rf /var/lib/apt/lists/*
+    
+    # ---- Upgrade pip ----
+    RUN pip install --upgrade pip setuptools wheel
+    
+    # ---- Install python dependencies ----
+    COPY requirements.txt .
+    
+    RUN pip install --no-cache-dir -r requirements.txt
+    
+    # ---- Copy project ----
+    COPY . .
+    
+    # ---- Default command ----
+    CMD ["python", "train.py"]
