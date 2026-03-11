@@ -21,7 +21,7 @@ nvidia-smi
 ############################
 
 module load python/3.11.5
-module load cuda
+module load cuda/12.6
 module load cudnn
 module load opencv/4.13.0
 module load r/4.5.0

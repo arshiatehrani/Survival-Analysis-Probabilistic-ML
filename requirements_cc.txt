@@ -158,7 +158,7 @@ tensorflow_hub==0.16.1+computecanada
 tensorflow_io_gcs_filesystem==0.32.0+computecanada
 tensorflow_metadata==1.17.3+computecanada
 tensorflow_model_optimization==0.8.0+computecanada
-tensorflow_probability==0.25.0+computecanada
+tensorflow_probability==0.24.0+computecanada
 tensorflow_text==2.17.0+computecanada
 termcolor==3.3.0+computecanada
 terminado==0.18.1+computecanada
