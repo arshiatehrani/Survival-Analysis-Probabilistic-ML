@@ -24,7 +24,8 @@ lifelines
 ##############################
 # Deep learning
 ##############################
-tensorflowtensorflow-probability
+tensorflow
+tensorflow-probability
 tf-models-official
 torch
 torchvision
