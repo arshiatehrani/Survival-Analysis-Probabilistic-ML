@@ -19,8 +19,6 @@ scikit-survival
 scikit-multilearn
 sklearn-pandas
 lifelines
-# auton-survival 
-
 ##############################
 # Deep learning
 ##############################

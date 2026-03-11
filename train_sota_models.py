@@ -126,21 +126,19 @@ if __name__ == "__main__":
                 train_time = time() - train_start_time
             elif model_name == "dsm":
                 config = load_config(pt.DSM_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
+                model = make_dsm_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
-                model = make_dsm_model(config)
                 model.fit(X_train, pd.DataFrame(y_train), val_data=(X_valid, pd.DataFrame(y_valid)))
                 train_time = time() - train_start_time
             elif model_name == "dcph":
                 config = load_config(pt.DCPH_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
-                model = make_dcph_model(config)
+                model = make_dcph_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
-                model.fit(X_train, t_train, e_train, batch_size=config['batch_size'],
-                          iters=config['iters'], val_data=(X_valid, t_valid, e_valid),
-                          learning_rate=config['learning_rate'], optimizer=config['optimizer'])
+                model.fit(X_train, t_train, e_train, val_data=(X_valid, t_valid, e_valid))
                 train_time = time() - train_start_time
             elif model_name == "dcm":
                 config = load_config(pt.DCM_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
-                model = make_dcm_model(config)
+                model = make_dcm_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
                 model.fit(X_train, pd.DataFrame(y_train), val_data=(X_valid, pd.DataFrame(y_valid)))
                 train_time = time() - train_start_time

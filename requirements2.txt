@@ -21,5 +21,4 @@ tqdm
 rpy2
 setuptools
 tzlocal
-auton-survival
 tf-models-official

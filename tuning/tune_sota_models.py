@@ -159,15 +159,15 @@ def train_model():
         model = make_coxnet_model(config)
         model.fit(X_train, y_train)
     elif model_name == "dcph":
-        model = make_dcph_model(config)
+        model = make_dcph_model(config, in_features=X_train.shape[1])
         model.fit(X_train, pd.DataFrame(y_train),
                   val_data=(X_valid, pd.DataFrame(y_valid)))
     elif model_name == "dcm":
-        model = make_dcm_model(config)
+        model = make_dcm_model(config, in_features=X_train.shape[1])
         model.fit(X_train, pd.DataFrame(y_train),
                   val_data=(X_valid, pd.DataFrame(y_valid)))
     elif model_name == "dsm":
-        model = make_dsm_model(config)
+        model = make_dsm_model(config, in_features=X_train.shape[1])
         model.fit(X_train, pd.DataFrame(y_train),
                   val_data=(X_valid, pd.DataFrame(y_valid)))
     elif model_name == "rsf":

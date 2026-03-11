@@ -21,5 +21,4 @@ tqdm~=4.66.2
 rpy2==3.5.1
 setuptools~=52.0.0
 tzlocal~=5.1
-auton-survival~=0.1.0
 tf-models-official~=2.10.0
