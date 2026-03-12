@@ -48,7 +48,13 @@ DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
 MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi"]
 N_EPOCHS = 100
 
-tf.config.set_visible_devices([], 'GPU') # use CPU
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    print(f"Using GPU: {gpus}")
+else:
+    print("No GPU found, using CPU")
 
 test_results = pd.DataFrame()
 training_results = pd.DataFrame()
@@ -157,8 +163,7 @@ if __name__ == "__main__":
                               n_samples_valid=n_samples_valid,
                               n_samples_test=n_samples_test)
             train_start_time = time()
-            with tf.device('/cpu:0'):
-                trainer.train_and_evaluate()
+            trainer.train_and_evaluate()
             train_time = time() - train_start_time
             
             # Get model for best epoch

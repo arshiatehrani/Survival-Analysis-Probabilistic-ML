@@ -54,10 +54,10 @@ MODELS = ["cox", "coxnet", "coxboost", "rsf", "dsm", "dcm", "baycox", "baymtlr"]
 results = pd.DataFrame()
 
 # Setup device
-device = "cpu" # use CPU
-device = torch.device(device)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == "__main__":
+    print(f"Torch device: {device}")
     # For each dataset
     for dataset_name in DATASETS:
         # Load data
@@ -97,7 +97,7 @@ if __name__ == "__main__":
         mtlr_times_pct = calculate_percentiles(mtlr_times)
         
         for model_name in MODELS:
-            print(f"Training {model_name}")
+            print(f"\n[{dataset_name}] Training {model_name} ...", flush=True)
             # Get batch size for MLP to use for loss calculation
             mlp_config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
             batch_size = mlp_config['batch_size']
@@ -174,6 +174,8 @@ if __name__ == "__main__":
                                         random_state=0, reset_model=True, device=device)
                 train_time = time() - train_start_time
             
+            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s", flush=True)
+
             # Compute survival function
             test_start_time = time()
             if model_name == "dsm":
