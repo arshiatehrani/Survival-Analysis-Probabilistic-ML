@@ -33,6 +33,7 @@ from utility.survival import survival_probability_calibration
 from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
+from tqdm import tqdm
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -76,7 +77,7 @@ if __name__ == "__main__":
     print(f"Models: {MODELS}")
     print(f"Epochs: {N_EPOCHS}")
     # For each dataset, train models and plot scores
-    for dataset_name in DATASETS:
+    for dataset_name in tqdm(DATASETS, desc="Datasets", position=0):
         
         # Load training parameters
         config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
@@ -133,7 +134,9 @@ if __name__ == "__main__":
 
         # Make models
         
-        for model_name in MODELS:
+        model_pbar = tqdm(MODELS, desc=f"{dataset_name} models", position=1, leave=False)
+        for model_name in model_pbar:
+            model_pbar.set_postfix_str(model_name)
             if model_name == "mlp":
                 dropout_rate = config['dropout_rate']
                 model = make_mlp_model(input_shape=X_train.shape[1:], output_dim=1,
@@ -180,7 +183,8 @@ if __name__ == "__main__":
             train_start_time = time()
             trainer.train_and_evaluate()
             train_time = time() - train_start_time
-            
+            tqdm.write(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s (best epoch: {trainer.best_ep})")
+
             # Get model for best epoch
             best_ep = trainer.best_ep
             status = trainer.checkpoint.restore(Path.joinpath(pt.MODELS_DIR, f"ckpt-{best_ep}"))

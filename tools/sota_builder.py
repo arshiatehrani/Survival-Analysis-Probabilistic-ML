@@ -150,7 +150,7 @@ class DeepHitDSMWrapper(_PyCoxWrapper):
 
         x_train = np.asarray(X_train).astype('float32')
         self.model.fit(x_train, y_train_trans, batch_size=32,
-                       epochs=self.n_epochs, val_data=val, verbose=False)
+                       epochs=self.n_epochs, val_data=val, verbose=True)
         return self
 
     def predict_survival(self, X_test, times=None, t=None):
@@ -201,7 +201,7 @@ class CoxPHWrapper(_PyCoxWrapper):
 
         x_train = np.asarray(X_train).astype('float32')
         self.model.fit(x_train, y_train_pycox, batch_size=self.batch_size,
-                       epochs=self.n_epochs, val_data=val, verbose=False)
+                       epochs=self.n_epochs, val_data=val, verbose=True)
         self.model.compute_baseline_hazards()
         return self
 
@@ -256,7 +256,7 @@ class LogisticHazardDCMWrapper(_PyCoxWrapper):
 
         x_train = np.asarray(X_train).astype('float32')
         self.model.fit(x_train, y_train_trans, batch_size=32,
-                       epochs=self.n_epochs, val_data=val, verbose=False)
+                       epochs=self.n_epochs, val_data=val, verbose=True)
         return self
 
     def predict_survival(self, X_test, times=None, t=None):

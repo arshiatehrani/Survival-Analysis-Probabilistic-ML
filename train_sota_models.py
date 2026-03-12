@@ -33,6 +33,7 @@ from utility.survival import convert_to_structured
 from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
+from tqdm import tqdm
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
     # For each dataset
-    for dataset_name in DATASETS:
+    for dataset_name in tqdm(DATASETS, desc="Datasets", position=0):
         # Load data
         dl = get_data_loader(dataset_name).load_data()
         num_features, cat_features = dl.get_features()
@@ -109,8 +110,9 @@ if __name__ == "__main__":
         event_times_pct = calculate_percentiles(event_times)
         mtlr_times_pct = calculate_percentiles(mtlr_times)
         
-        for model_name in MODELS:
-            print(f"\n[{dataset_name}] Training {model_name} ...", flush=True)
+        model_pbar = tqdm(MODELS, desc=f"{dataset_name} models", position=1, leave=False)
+        for model_name in model_pbar:
+            model_pbar.set_postfix_str(model_name)
             # Get batch size for MLP to use for loss calculation
             mlp_config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
             batch_size = mlp_config['batch_size']
@@ -187,7 +189,7 @@ if __name__ == "__main__":
                                         random_state=0, reset_model=True, device=device)
                 train_time = time() - train_start_time
             
-            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s", flush=True)
+            tqdm.write(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s")
 
             # Compute survival function
             test_start_time = time()
