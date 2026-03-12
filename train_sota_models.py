@@ -32,6 +32,7 @@ from utility.training import make_stratified_split
 from utility.survival import convert_to_structured
 from tools.Evaluations.util import make_monotonic, check_monotonicity
 
+import argparse
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -48,8 +49,8 @@ class dotdict(dict):
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
 
-DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
-MODELS = ["cox", "coxnet", "coxboost", "rsf", "dsm", "dcm", "baycox", "baymtlr"]
+ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
+ALL_MODELS = ["cox", "coxnet", "coxboost", "rsf", "dsm", "dcm", "baycox", "baymtlr"]
 
 results = pd.DataFrame()
 
@@ -57,7 +58,19 @@ results = pd.DataFrame()
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train SOTA survival analysis models")
+    parser.add_argument("--datasets", nargs="+", default=ALL_DATASETS,
+                        choices=ALL_DATASETS, help="Datasets to train on (default: all)")
+    parser.add_argument("--models", nargs="+", default=ALL_MODELS,
+                        choices=ALL_MODELS, help="Models to train (default: all)")
+    args = parser.parse_args()
+
+    DATASETS = args.datasets
+    MODELS = args.models
+
     print(f"Torch device: {device}")
+    print(f"Datasets: {DATASETS}")
+    print(f"Models: {MODELS}")
     # For each dataset
     for dataset_name in DATASETS:
         # Load data

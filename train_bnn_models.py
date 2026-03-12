@@ -32,6 +32,7 @@ import torch
 from utility.survival import survival_probability_calibration
 from tools.Evaluations.util import make_monotonic, check_monotonicity
 
+import argparse
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -42,10 +43,8 @@ np.random.seed(0)
 tf.random.set_seed(0)
 random.seed(0)
 
-training_results, test_results = pd.DataFrame(), pd.DataFrame()
-
-DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
-MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi"]
+ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
+ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi"]
 N_EPOCHS = 100
 
 gpus = tf.config.list_physical_devices('GPU')
@@ -60,6 +59,22 @@ test_results = pd.DataFrame()
 training_results = pd.DataFrame()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train BNN survival analysis models")
+    parser.add_argument("--datasets", nargs="+", default=ALL_DATASETS,
+                        choices=ALL_DATASETS, help="Datasets to train on (default: all)")
+    parser.add_argument("--models", nargs="+", default=ALL_MODELS,
+                        choices=ALL_MODELS, help="Models to train (default: all)")
+    parser.add_argument("--epochs", type=int, default=N_EPOCHS,
+                        help="Number of training epochs (default: 100)")
+    args = parser.parse_args()
+
+    DATASETS = args.datasets
+    MODELS = args.models
+    N_EPOCHS = args.epochs
+
+    print(f"Datasets: {DATASETS}")
+    print(f"Models: {MODELS}")
+    print(f"Epochs: {N_EPOCHS}")
     # For each dataset, train models and plot scores
     for dataset_name in DATASETS:
         

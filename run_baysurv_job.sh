@@ -79,6 +79,19 @@ mkdir -p models results
 ############################
 # 5. Run training scripts #
 ############################
+# Without arguments, all datasets and models run (default behavior).
+# Use --datasets and --models to select subsets.
+#
+# SOTA models: cox, coxnet, coxboost, rsf, dsm, dcm, baycox, baymtlr
+# BNN models:  mlp, sngp, mcd1, mcd2, mcd3, vi
+# Datasets:    SUPPORT, SEER, METABRIC, MIMIC
+#
+# Examples:
+#   python train_sota_models.py --datasets SUPPORT --models cox baycox
+#   python train_sota_models.py --models dsm dcm
+#   python train_sota_models.py --datasets SUPPORT METABRIC
+#   python train_bnn_models.py --datasets SUPPORT --models mlp vi
+#   python train_bnn_models.py --epochs 50
 
 echo "Starting train_sota_models.py at $(date)"
 python train_sota_models.py
