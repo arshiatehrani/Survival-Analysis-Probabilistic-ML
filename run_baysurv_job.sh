@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-00:05:00
+#SBATCH --time=0-01:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --mem=16G
 #SBATCH --gpus-per-node=h100:1
@@ -12,6 +12,10 @@
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export TF_NUM_INTRAOP_THREADS=$SLURM_CPUS_PER_TASK
 export TF_NUM_INTEROP_THREADS=1
+
+export TF_CPP_MIN_LOG_LEVEL=3
+export TF_ENABLE_ONEDNN_OPTS=0
+export PYTHONWARNINGS="ignore::UserWarning:rpy2.rinterface"
 
 echo "Job started on $(date)"
 nvidia-smi
@@ -25,6 +29,8 @@ module load cuda/12.6
 module load cudnn
 module load opencv/4.13.0
 module load r/4.5.0
+
+unset -f module ml which 2>/dev/null
 
 ############################
 # 2. Copy data to fast local scratch #
