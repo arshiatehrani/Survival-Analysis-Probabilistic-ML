@@ -49,6 +49,7 @@ class CoxPHLossGaussian(tf.keras.losses.Loss):
                              "be 2." % riskset.shape.ndims)
 
         event = tf.cast(event, y_pred.dtype)
+        riskset = tf.cast(riskset, tf.bool)
         y_pred = safe_normalize(y_pred)
         
         with tf.name_scope("assertions"):
@@ -125,6 +126,7 @@ class CoxPHLoss(tf.keras.losses.Loss):
                              "be 2." % riskset.shape.ndims)
 
         event = tf.cast(event, predictions.dtype)
+        riskset = tf.cast(riskset, tf.bool)
         predictions = safe_normalize(predictions)
 
         with tf.name_scope("assertions"):

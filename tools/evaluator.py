@@ -569,7 +569,7 @@ class PycoxEvaluator(SurvivalEvaluator, ABC):
             Options: "Hyman" (default), "Pchip", "Linear".
         """
         time_coordinates = surv.index.values
-        predicted_survival_curves = surv.values.T
+        predicted_survival_curves = surv.values.T.copy()
         # Pycox models can sometimes obtain -0 as survival probabilities. Need to convert that to 0.
         predicted_survival_curves[predicted_survival_curves < 0] = 0
         super(PycoxEvaluator, self).__init__(predicted_survival_curves, time_coordinates, test_event_times,
