@@ -97,13 +97,23 @@ if __name__ == "__main__":
         dl = get_data_loader(dataset_name).load_data()
         num_features, cat_features = dl.get_features()
         df = dl.get_data()
-        
+
+        event_rate = df["event"].mean()
+        tqdm.write(f"\n{'='*60}")
+        tqdm.write(f"Dataset: {dataset_name} | Samples: {len(df)} | "
+                   f"Features: {len(num_features)} num + {len(cat_features)} cat | "
+                   f"Event rate: {event_rate:.1%}")
+        tqdm.write(f"Config: layers={layers}, batch={batch_size}, lr={optimizer.learning_rate.numpy():.1e}, "
+                   f"epochs={N_EPOCHS}, early_stop={early_stop}, patience={patience}")
+        tqdm.write(f"{'='*60}")
+
         # Split data
         df_train, df_valid, df_test = make_stratified_split(df, stratify_colname='both', frac_train=0.7,
                                                             frac_valid=0.1, frac_test=0.2, random_state=0)
         X_train = df_train[cat_features+num_features]
         X_valid = df_valid[cat_features+num_features]
         X_test = df_test[cat_features+num_features]
+        tqdm.write(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
         y_train = convert_to_structured(df_train["time"], df_train["event"])
         y_valid = convert_to_structured(df_valid["time"], df_valid["event"])
         y_test = convert_to_structured(df_test["time"], df_test["event"])
@@ -264,7 +274,9 @@ if __name__ == "__main__":
             res_df['ModelName'] = model_name
             res_df['DatasetName'] = dataset_name
             test_results = pd.concat([test_results, res_df], axis=0)
-            
+
+            tqdm.write(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+
             # Save loss and variance from training
             train_loss = trainer.train_loss
             train_variance = trainer.train_variance
@@ -281,7 +293,8 @@ if __name__ == "__main__":
             weights_dir.mkdir(parents=True, exist_ok=True)
             path = weights_dir / "weights.weights.h5"
             model.save_weights(path)
-            
+            tqdm.write(f"  -> Model saved: {path}")
+
             # Save results
             training_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_training_results.csv"), index=False)
             test_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_test_results.csv"), index=False)

@@ -78,13 +78,21 @@ if __name__ == "__main__":
         dl = get_data_loader(dataset_name).load_data()
         num_features, cat_features = dl.get_features()
         df = dl.get_data()
-        
+
+        event_rate = df["event"].mean()
+        tqdm.write(f"\n{'='*60}")
+        tqdm.write(f"Dataset: {dataset_name} | Samples: {len(df)} | "
+                   f"Features: {len(num_features)} num + {len(cat_features)} cat | "
+                   f"Event rate: {event_rate:.1%}")
+        tqdm.write(f"{'='*60}")
+
         # Split data
         df_train, df_valid, df_test = make_stratified_split(df, stratify_colname='both', frac_train=0.7,
                                                             frac_valid=0.1, frac_test=0.2, random_state=0)
         X_train = df_train[cat_features+num_features]
         X_valid = df_valid[cat_features+num_features]
         X_test = df_test[cat_features+num_features]
+        tqdm.write(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
         y_train = convert_to_structured(df_train["time"], df_train["event"])
         y_valid = convert_to_structured(df_valid["time"], df_valid["event"])
         y_test = convert_to_structured(df_test["time"], df_test["event"])
@@ -308,6 +316,8 @@ if __name__ == "__main__":
             res_df['DatasetName'] = dataset_name
             results = pd.concat([results, res_df], axis=0)
 
+            tqdm.write(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+
             # Save model
             if model_name in ["baycox", "baymtlr"]:
                 path = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}.pt")
@@ -315,6 +325,7 @@ if __name__ == "__main__":
             else:
                 path = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}.joblib")
                 joblib.dump(model, path)
+            tqdm.write(f"  -> Model saved: {path}")
 
             # Save results
             results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"sota_results.csv"), index=False)
