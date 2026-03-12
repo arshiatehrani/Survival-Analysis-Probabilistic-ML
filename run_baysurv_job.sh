@@ -103,9 +103,15 @@ mkdir -p models results
 #   python train_bnn_models.py --wandb --wandb-project my-project --models mlp vi
 
 echo "Starting train_sota_models.py at $(date)"
-python train_sota_models.py
+python train_sota_models.py --datasets SEER --models cox
 
 echo "Starting train_bnn_models.py at $(date)"
-python train_bnn_models.py
+python train_bnn_models.py --datasets SUPPORT --models sngp
+
+# echo "Starting train_sota_models.py at $(date)"
+# python train_sota_models.py
+
+# echo "Starting train_bnn_models.py at $(date)"
+# python train_bnn_models.py
 
 echo "Job finished on $(date)"
