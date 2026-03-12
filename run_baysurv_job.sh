@@ -49,8 +49,8 @@ pip install --no-index --upgrade pip
 cd "$PROJECT_DIR"
 pip install --no-index -r requirements_cc.txt
 
-# TFP 0.25 needs tf-keras to work with TensorFlow
-pip install --no-index tf-keras
+# TFP 0.25 needs tf-keras; SNGP model needs tf-models-official
+pip install --no-index tf-keras tf-models-official
 
 pip check
 

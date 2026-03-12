@@ -282,7 +282,7 @@ class Preprocessor:
                      remaining='drop'):
 
     self.one_hot = one_hot
-    self.one_hot_encoder = OneHotEncoder(drop='first', sparse=False)
+    self.one_hot_encoder = OneHotEncoder(drop='first', sparse_output=False)
 
     self.imputer = Imputer(cat_feat_strat=cat_feat_strat,
                            num_feat_strat=num_feat_strat,
