@@ -2,7 +2,7 @@
 #SBATCH --job-name=elec888_train
 #SBATCH --time=0-00:30:00
 #SBATCH --account=def-bakhshai
-#SBATCH --mem=16384
+#SBATCH --mem=16G
 #SBATCH --gpus-per-node=h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --ntasks-per-node=1
