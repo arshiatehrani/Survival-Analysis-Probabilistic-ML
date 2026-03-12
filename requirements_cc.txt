@@ -29,7 +29,6 @@ ecos==2.0.14+computecanada
 einops==0.8.2+computecanada
 etils==1.13.0+computecanada
 fastjsonschema==2.21.2+computecanada
-feather-format==0.4.0+computecanada
 filelock==3.25.1+computecanada
 flatbuffers==25.12.19+computecanada
 formulaic==1.2.1+computecanada
