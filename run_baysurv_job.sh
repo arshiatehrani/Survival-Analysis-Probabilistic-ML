@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-01:00:00
+#SBATCH --time=0-03:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --mem=16G
 #SBATCH --gpus-per-node=h100:1
