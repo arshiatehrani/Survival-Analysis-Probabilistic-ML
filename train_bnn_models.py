@@ -1,3 +1,7 @@
+import scipy.integrate
+if not hasattr(scipy.integrate, 'simps'):
+    scipy.integrate.simps = scipy.integrate.simpson
+
 import tensorflow as tf
 import numpy as np
 import pandas as pd

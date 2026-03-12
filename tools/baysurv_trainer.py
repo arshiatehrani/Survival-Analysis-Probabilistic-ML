@@ -190,6 +190,6 @@ class Trainer:
         self.test_loss_scores.append(float(epoch_loss))
 
     def cleanup(self):
-        self.train_loss_metric.reset_states()
-        self.valid_loss_metric.reset_states()
-        self.test_loss_metric.reset_states()
+        self.train_loss_metric.reset_state()
+        self.valid_loss_metric.reset_state()
+        self.test_loss_metric.reset_state()
