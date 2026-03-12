@@ -6,10 +6,12 @@ from utility.loss import CoxPHLoss, CoxPHLossGaussian
 class Trainer:
     def __init__(self, model, model_name, train_dataset, valid_dataset,
                  test_dataset, optimizer, loss_function, num_epochs, early_stop,
-                 patience, n_samples_train, n_samples_valid, n_samples_test):
+                 patience, n_samples_train, n_samples_valid, n_samples_test,
+                 use_wandb=False):
         self.num_epochs = num_epochs
         self.model = model
         self.model_name = model_name
+        self.use_wandb = use_wandb
 
         self.train_ds = train_dataset
         self.valid_ds = valid_dataset
@@ -48,6 +50,18 @@ class Trainer:
                 stop_training = self.validate(epoch)
             if self.test_ds is not None:
                 self.test()
+
+            if self.use_wandb:
+                import wandb
+                log_dict = {"epoch": epoch, "train_loss": self.train_loss[-1]}
+                if self.train_variance:
+                    log_dict["train_variance"] = self.train_variance[-1]
+                if self.valid_loss:
+                    log_dict["valid_loss"] = self.valid_loss[-1]
+                if self.valid_variance:
+                    log_dict["valid_variance"] = self.valid_variance[-1]
+                wandb.log(log_dict)
+
             if stop_training:
                 self.cleanup()
                 break

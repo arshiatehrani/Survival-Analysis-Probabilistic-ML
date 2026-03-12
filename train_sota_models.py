@@ -33,6 +33,7 @@ from utility.survival import convert_to_structured
 from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
+import os
 from tqdm import tqdm
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -64,14 +65,22 @@ if __name__ == "__main__":
                         choices=ALL_DATASETS, help="Datasets to train on (default: all)")
     parser.add_argument("--models", nargs="+", default=ALL_MODELS,
                         choices=ALL_MODELS, help="Models to train (default: all)")
+    parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
+    parser.add_argument("--wandb-project", default="baysurv-sota", help="wandb project name")
     args = parser.parse_args()
 
     DATASETS = args.datasets
     MODELS = args.models
+    USE_WANDB = args.wandb
+
+    if USE_WANDB:
+        import wandb
+        os.environ["WANDB_SILENT"] = "true"
 
     print(f"Torch device: {device}")
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
+    print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset
     for dataset_name in tqdm(DATASETS, desc="Datasets", position=0):
         # Load data
@@ -124,6 +133,30 @@ if __name__ == "__main__":
             # Get batch size for MLP to use for loss calculation
             mlp_config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
             batch_size = mlp_config['batch_size']
+
+            # Load model-specific config
+            config_dirs = {
+                "cox": pt.COX_CONFIGS_DIR, "coxnet": pt.COXNET_CONFIGS_DIR,
+                "coxboost": pt.COXBOOST_CONFIGS_DIR, "rsf": pt.RSF_CONFIGS_DIR,
+                "dsm": pt.DSM_CONFIGS_DIR, "dcph": pt.DCPH_CONFIGS_DIR,
+                "dcm": pt.DCM_CONFIGS_DIR, "baycox": pt.BAYCOX_CONFIGS_DIR,
+                "baymtlr": pt.BAYMTLR_CONFIGS_DIR,
+            }
+            config = load_config(config_dirs[model_name], f"{dataset_name.lower()}.yaml")
+            if model_name in ["baycox", "baymtlr"]:
+                config = dotdict(config)
+
+            if USE_WANDB:
+                wandb.init(
+                    project=args.wandb_project,
+                    name=f"{dataset_name}_{model_name}",
+                    group=dataset_name,
+                    tags=["sota", model_name, dataset_name],
+                    config={"model": model_name, "dataset": dataset_name,
+                            "n_train": len(X_train), "n_features": X_train.shape[1],
+                            "device": str(device), **config},
+                    reinit=True,
+                )
             
             if model_name in ["baycox", "baymtlr"]:
                 # Make data for BayCox/BayMTLR models
@@ -140,56 +173,47 @@ if __name__ == "__main__":
                         
             # Make model and train
             if model_name == "cox":
-                config = load_config(pt.COX_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_cox_model(config)
                 train_start_time = time()
                 model.fit(X_train_arr, y_train)
                 train_time = time() - train_start_time  
             elif model_name == "coxnet":
-                config = load_config(pt.COXNET_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_coxnet_model(config)
                 train_start_time = time()
                 model.fit(X_train_arr, y_train)
                 train_time = time() - train_start_time
             elif model_name == "dsm":
-                config = load_config(pt.DSM_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_dsm_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
                 model.fit(X_train, pd.DataFrame(y_train), val_data=(X_valid, pd.DataFrame(y_valid)))
                 train_time = time() - train_start_time
             elif model_name == "dcph":
-                config = load_config(pt.DCPH_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_dcph_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
                 model.fit(X_train, t_train, e_train, val_data=(X_valid, t_valid, e_valid))
                 train_time = time() - train_start_time
             elif model_name == "dcm":
-                config = load_config(pt.DCM_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_dcm_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
                 model.fit(X_train, pd.DataFrame(y_train), val_data=(X_valid, pd.DataFrame(y_valid)))
                 train_time = time() - train_start_time
             elif model_name == "rsf":
-                config = load_config(pt.RSF_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_rsf_model(config)
                 train_start_time = time()
                 model.fit(X_train_arr, y_train)
                 train_time = time() - train_start_time
             elif model_name == "coxboost":
-                config = load_config(pt.COXBOOST_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
                 model = make_coxboost_model(config)
                 train_start_time = time()
                 model.fit(X_train_arr, y_train)
                 train_time = time() - train_start_time
             elif model_name == "baycox":
-                config = dotdict(load_config(pt.BAYCOX_CONFIGS_DIR, f"{dataset_name.lower()}.yaml"))
                 model = make_baycox_model(num_features, config)
                 train_start_time = time()
                 model = train_bnn_model(model, data_train, data_valid, mtlr_times,
                                         config=config, random_state=0, reset_model=True, device=device)
                 train_time = time() - train_start_time
             elif model_name == "baymtlr":
-                config = dotdict(load_config(pt.BAYMTLR_CONFIGS_DIR, f"{dataset_name.lower()}.yaml"))
                 model = make_baymtlr_model(num_features, mtlr_times, config)
                 train_start_time = time()
                 model = train_bnn_model(model, data_train, data_valid,
@@ -317,6 +341,16 @@ if __name__ == "__main__":
             results = pd.concat([results, res_df], axis=0)
 
             tqdm.write(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+
+            if USE_WANDB:
+                wandb.log({
+                    "CI": ci, "IBS": ibs, "INBLL": inbll,
+                    "MAE_Hinge": mae_hinge, "MAE_Pseudo": mae_pseudo,
+                    "DCalib": d_calib, "KM_MSE": km_mse,
+                    "CCalib": c_calib, "ICI": ici,
+                    "train_time": train_time, "test_time": test_time,
+                })
+                wandb.finish()
 
             # Save model
             if model_name in ["baycox", "baymtlr"]:

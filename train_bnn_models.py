@@ -33,6 +33,7 @@ from utility.survival import survival_probability_calibration
 from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
+import os
 from tqdm import tqdm
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -67,15 +68,23 @@ if __name__ == "__main__":
                         choices=ALL_MODELS, help="Models to train (default: all)")
     parser.add_argument("--epochs", type=int, default=N_EPOCHS,
                         help="Number of training epochs (default: 100)")
+    parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
+    parser.add_argument("--wandb-project", default="baysurv-bnn", help="wandb project name")
     args = parser.parse_args()
 
     DATASETS = args.datasets
     MODELS = args.models
     N_EPOCHS = args.epochs
+    USE_WANDB = args.wandb
+
+    if USE_WANDB:
+        import wandb
+        os.environ["WANDB_SILENT"] = "true"
 
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
     print(f"Epochs: {N_EPOCHS}")
+    print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset, train models and plot scores
     for dataset_name in tqdm(DATASETS, desc="Datasets", position=0):
         
@@ -147,6 +156,22 @@ if __name__ == "__main__":
         model_pbar = tqdm(MODELS, desc=f"{dataset_name} models", position=1, leave=False)
         for model_name in model_pbar:
             model_pbar.set_postfix_str(model_name)
+
+            if USE_WANDB:
+                wandb.init(
+                    project=args.wandb_project,
+                    name=f"{dataset_name}_{model_name}",
+                    group=dataset_name,
+                    tags=["bnn", model_name, dataset_name],
+                    config={"model": model_name, "dataset": dataset_name,
+                            "n_train": len(X_train), "n_features": X_train.shape[1],
+                            "layers": layers, "activation": activation_fn,
+                            "batch_size": batch_size, "epochs": N_EPOCHS,
+                            "l2_reg": l2_reg, "early_stop": early_stop,
+                            "patience": patience, "lr": float(optimizer.learning_rate.numpy())},
+                    reinit=True,
+                )
+
             if model_name == "mlp":
                 dropout_rate = config['dropout_rate']
                 model = make_mlp_model(input_shape=X_train.shape[1:], output_dim=1,
@@ -189,7 +214,8 @@ if __name__ == "__main__":
                               early_stop=early_stop, patience=patience,
                               n_samples_train=n_samples_train,
                               n_samples_valid=n_samples_valid,
-                              n_samples_test=n_samples_test)
+                              n_samples_test=n_samples_test,
+                              use_wandb=USE_WANDB)
             train_start_time = time()
             trainer.train_and_evaluate()
             train_time = time() - train_start_time
@@ -276,6 +302,17 @@ if __name__ == "__main__":
             test_results = pd.concat([test_results, res_df], axis=0)
 
             tqdm.write(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+
+            if USE_WANDB:
+                wandb.log({
+                    "CI": ci, "IBS": ibs, "INBLL": inbll,
+                    "MAE_Hinge": mae_hinge, "MAE_Pseudo": mae_pseudo,
+                    "DCalib": d_calib, "KM_MSE": km_mse,
+                    "CCalib": c_calib, "ICI": ici,
+                    "train_time": train_time, "test_time": test_time,
+                    "best_epoch": trainer.best_ep,
+                })
+                wandb.finish()
 
             # Save loss and variance from training
             train_loss = trainer.train_loss

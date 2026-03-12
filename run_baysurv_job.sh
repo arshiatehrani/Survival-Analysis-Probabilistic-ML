@@ -18,6 +18,10 @@ export TF_ENABLE_ONEDNN_OPTS=0
 export PYTHONUNBUFFERED=1
 export PYTHONWARNINGS="ignore::UserWarning:rpy2.rinterface"
 
+# Wandb: set your API key here to enable --wandb tracking from the cluster.
+# Get your key from https://wandb.ai/authorize
+# export WANDB_API_KEY="your-key-here"
+
 echo "Job started on $(date)"
 nvidia-smi
 
@@ -81,6 +85,7 @@ mkdir -p models results
 ############################
 # Without arguments, all datasets and models run (default behavior).
 # Use --datasets and --models to select subsets.
+# Add --wandb to enable experiment tracking (requires wandb login).
 #
 # SOTA models: cox, coxnet, coxboost, rsf, dsm, dcm, baycox, baymtlr
 # BNN models:  mlp, sngp, mcd1, mcd2, mcd3, vi
@@ -92,6 +97,12 @@ mkdir -p models results
 #   python train_sota_models.py --datasets SUPPORT METABRIC
 #   python train_bnn_models.py --datasets SUPPORT --models mlp vi
 #   python train_bnn_models.py --epochs 50
+#
+# With wandb tracking:
+#   python train_sota_models.py --wandb
+#   python train_bnn_models.py --wandb
+#   python train_sota_models.py --wandb --wandb-project my-project --datasets SUPPORT
+#   python train_bnn_models.py --wandb --wandb-project my-project --models mlp vi
 
 echo "Starting train_sota_models.py at $(date)"
 python train_sota_models.py
