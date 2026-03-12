@@ -49,6 +49,9 @@ pip install --no-index --upgrade pip
 cd "$PROJECT_DIR"
 pip install --no-index -r requirements_cc.txt
 
+# TFP 0.25 needs tf-keras to work with TensorFlow
+pip install --no-index tf-keras
+
 pip check
 
 ############################
