@@ -194,12 +194,12 @@ if __name__ == "__main__":
                 baycox_test_data = torch.tensor(data_test.drop(["time", "event"], axis=1).values,
                                                 dtype=torch.float, device=device)
                 survival_outputs, _, ensemble_outputs = make_ensemble_cox_prediction(model, baycox_test_data, config)
-                surv_preds = survival_outputs.numpy()
+                surv_preds = survival_outputs.cpu().numpy()
             elif model_name == "baymtlr":
                 baycox_test_data = torch.tensor(data_test.drop(["time", "event"], axis=1).values,
                                                 dtype=torch.float, device=device)
                 survival_outputs, _, ensemble_outputs = make_ensemble_mtlr_prediction(model, baycox_test_data, mtlr_times, config)
-                surv_preds = survival_outputs.numpy()
+                surv_preds = survival_outputs.cpu().numpy()
             else:
                 surv_preds = compute_deterministic_survival_curve(model, X_train_arr, X_test_arr,
                                                                   e_train, t_train, event_times, model_name)

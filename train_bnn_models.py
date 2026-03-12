@@ -258,7 +258,9 @@ if __name__ == "__main__":
             training_results = pd.concat([training_results, res_df], axis=0)
             
             # Save model
-            path = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}/")
+            weights_dir = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}")
+            weights_dir.mkdir(parents=True, exist_ok=True)
+            path = weights_dir / "weights.weights.h5"
             model.save_weights(path)
             
             # Save results

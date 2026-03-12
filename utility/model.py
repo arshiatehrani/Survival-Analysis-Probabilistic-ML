@@ -58,7 +58,7 @@ def load_mlp_model(dataset_name, n_input_dims):
     mlp_model = make_mlp_model(input_shape=n_input_dims, output_dim=1,
                                layers=layers, activation_fn=activation_fn,
                                dropout_rate=dropout_rate, regularization_pen=l2_reg)
-    mlp_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_mlp')
+    mlp_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_mlp/weights.weights.h5')
     mlp_model.compile(loss=loss_fn, optimizer=optimizer)
     return mlp_model
 
@@ -73,7 +73,7 @@ def load_sngp_model(dataset_name, n_input_dims):
     mlp_model = make_sngp_model(input_shape=n_input_dims, output_dim=1,
                                 layers=layers, activation_fn=activation_fn,
                                 dropout_rate=dropout_rate, regularization_pen=l2_reg)
-    mlp_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_sngp')
+    mlp_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_sngp/weights.weights.h5')
     mlp_model.compile(loss=loss_fn, optimizer=optimizer)
     return mlp_model
 
@@ -88,7 +88,7 @@ def load_mlp_alea_model(dataset_name, n_input_dims):
     mlp_model = make_mlp_model(input_shape=n_input_dims, output_dim=2,
                                layers=layers, activation_fn=activation_fn,
                                dropout_rate=dropout_rate, regularization_pen=l2_reg)
-    mlp_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_mlp-alea')
+    mlp_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_mlp-alea/weights.weights.h5')
     mlp_model.compile(loss=loss_fn, optimizer=optimizer)
     return mlp_model
 
@@ -103,7 +103,7 @@ def load_vi_model(dataset_name, n_train_samples, n_input_dims):
     vi_model = make_vi_model(n_train_samples=n_train_samples, input_shape=n_input_dims,
                             output_dim=2, layers=layers, activation_fn=activation_fn,
                             dropout_rate=dropout_rate, regularization_pen=l2_reg)
-    vi_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_vi')
+    vi_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_vi/weights.weights.h5')
     vi_model.compile(loss=loss_fn, optimizer=optimizer)
     return vi_model
 
@@ -118,7 +118,7 @@ def load_vi_epi_model(dataset_name, n_train_samples, n_input_dims):
     vi_model = make_vi_model(n_train_samples=n_train_samples, input_shape=n_input_dims,
                              output_dim=1, layers=layers, activation_fn=activation_fn,
                              dropout_rate=dropout_rate, regularization_pen=l2_reg)
-    vi_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_vi-epi')
+    vi_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_vi-epi/weights.weights.h5')
     vi_model.compile(loss=loss_fn, optimizer=optimizer)
     return vi_model
 
@@ -133,7 +133,7 @@ def load_mcd_model(dataset_name, model_name, n_input_dims):
     mcd_model = make_mcd_model(input_shape=n_input_dims, output_dim=2,
                                layers=layers, activation_fn=activation_fn,
                                dropout_rate=dropout_rate, regularization_pen=l2_reg)
-    mcd_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_{model_name}')
+    mcd_model.load_weights(f'{root_dir}/models/{dataset_name.lower()}_{model_name}/weights.weights.h5')
     mcd_model.compile(loss=loss_fn, optimizer=optimizer)
     return mcd_model
     

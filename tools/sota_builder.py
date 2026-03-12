@@ -122,12 +122,13 @@ class _PyCoxWrapper:
 class DeepHitDSMWrapper(_PyCoxWrapper):
     """DeepHitSingle-based replacement for auton-survival DSM."""
 
-    def __init__(self, in_features, config, num_durations=100):
+    def __init__(self, in_features, config, num_durations=100, device=None):
         self.in_features = in_features
         self.layers = config['network_layers']
         self.lr = config.get('learning_rate', 0.01)
         self.n_epochs = config.get('n_iter', 200)
         self.num_durations = num_durations
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
         self.labtrans = None
 
@@ -138,6 +139,7 @@ class DeepHitDSMWrapper(_PyCoxWrapper):
         y_train_trans = self.labtrans.fit_transform(t_train, e_train)
 
         net = _make_pycox_net(self.in_features, self.layers, self.labtrans.out_features)
+        net.to(self.device)
         self.model = DeepHitSingle(net, tt.optim.Adam, alpha=0.2, sigma=0.1,
                                    duration_index=self.labtrans.cuts)
         self.model.optimizer.set_lr(self.lr)
@@ -174,18 +176,20 @@ class DeepHitDSMWrapper(_PyCoxWrapper):
 class CoxPHWrapper(_PyCoxWrapper):
     """pycox CoxPH wrapper replacing auton-survival DCPH."""
 
-    def __init__(self, in_features, config):
+    def __init__(self, in_features, config, device=None):
         self.in_features = in_features
         self.layers = config['network_layers']
         self.lr = config.get('learning_rate', 0.001)
         self.n_epochs = config.get('n_iter', config.get('iters', 500))
         self.batch_size = config.get('batch_size', 32)
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
 
     def fit(self, X_train, y_df_or_t, e=None, val_data=None, **kwargs):
         t_train, e_train = self._parse_targets(y_df_or_t, e)
 
         net = _make_pycox_net(self.in_features, self.layers, out_features=1)
+        net.to(self.device)
         self.model = CoxPH(net, tt.optim.Adam)
         self.model.optimizer.set_lr(self.lr)
 
@@ -224,12 +228,13 @@ class CoxPHWrapper(_PyCoxWrapper):
 class LogisticHazardDCMWrapper(_PyCoxWrapper):
     """LogisticHazard-based replacement for auton-survival DCM."""
 
-    def __init__(self, in_features, config, num_durations=100):
+    def __init__(self, in_features, config, num_durations=100, device=None):
         self.in_features = in_features
         self.layers = config['network_layers']
         self.lr = config.get('learning_rate', 0.001)
         self.n_epochs = config.get('n_iter', 1000)
         self.num_durations = num_durations
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
         self.labtrans = None
 
@@ -240,6 +245,7 @@ class LogisticHazardDCMWrapper(_PyCoxWrapper):
         y_train_trans = self.labtrans.fit_transform(t_train, e_train)
 
         net = _make_pycox_net(self.in_features, self.layers, self.labtrans.out_features)
+        net.to(self.device)
         self.model = LogisticHazard(net, tt.optim.Adam,
                                     duration_index=self.labtrans.cuts)
         self.model.optimizer.set_lr(self.lr)
