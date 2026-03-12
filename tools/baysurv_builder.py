@@ -1,6 +1,114 @@
+import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-import official.nlp.modeling.layers as nlp_layers
+
+
+class SpectralNormalization(tf.keras.layers.Wrapper):
+    """Keras 3 compatible spectral normalization wrapper."""
+    def __init__(self, layer, norm_multiplier=0.9, **kwargs):
+        super().__init__(layer, **kwargs)
+        self.norm_multiplier = norm_multiplier
+
+    def build(self, input_shape):
+        super().build(input_shape)
+        kernel = self.layer.kernel
+        self.u = self.add_weight(
+            name='sn_u', shape=(1, kernel.shape[-1]),
+            initializer='truncated_normal', trainable=False,
+        )
+
+    def call(self, inputs, training=None):
+        self._normalize_kernel()
+        return self.layer(inputs)
+
+    def _normalize_kernel(self):
+        kernel = self.layer.kernel
+        w = tf.reshape(kernel, [-1, kernel.shape[-1]])
+        u_hat = self.u
+        v_hat = tf.nn.l2_normalize(tf.matmul(u_hat, tf.transpose(w)))
+        u_hat = tf.nn.l2_normalize(tf.matmul(v_hat, w))
+        sigma = tf.squeeze(tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat)))
+        self.u.assign(u_hat)
+        self.layer.kernel.assign(
+            kernel * (self.norm_multiplier / tf.maximum(sigma, self.norm_multiplier))
+        )
+
+
+class RandomFeatureGaussianProcess(tf.keras.layers.Layer):
+    """Keras 3 compatible Random Feature Gaussian Process output layer.
+
+    Uses Random Fourier Features to approximate a GP posterior, producing
+    (logits, covariance_matrix) at each forward pass.
+    """
+    def __init__(self, units, num_inducing=1024, normalize_input=False,
+                 scale_random_features=True, gp_cov_momentum=-1, ridge_penalty=1.0,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.units = units
+        self.num_inducing = num_inducing
+        self.normalize_input = normalize_input
+        self.scale_random_features = scale_random_features
+        self.gp_cov_momentum = gp_cov_momentum
+        self.ridge_penalty = ridge_penalty
+
+    def build(self, input_shape):
+        input_dim = input_shape[-1]
+        if self.normalize_input:
+            self.input_norm = tf.keras.layers.LayerNormalization()
+
+        self.rff_w = self.add_weight(
+            name='rff_w', shape=(input_dim, self.num_inducing),
+            initializer=tf.initializers.RandomNormal(stddev=1.0),
+            trainable=False,
+        )
+        self.rff_b = self.add_weight(
+            name='rff_b', shape=(self.num_inducing,),
+            initializer=tf.initializers.RandomUniform(minval=0., maxval=2. * np.pi),
+            trainable=False,
+        )
+        self.beta = self.add_weight(
+            name='gp_beta', shape=(self.num_inducing, self.units),
+            initializer='zeros', trainable=True,
+        )
+        self.output_bias = self.add_weight(
+            name='gp_output_bias', shape=(self.units,),
+            initializer='zeros', trainable=True,
+        )
+        self.precision = self.add_weight(
+            name='gp_precision', shape=(self.num_inducing, self.num_inducing),
+            initializer='identity', trainable=False,
+        )
+        self._rff_scale = tf.sqrt(2.0 / float(self.num_inducing))
+        super().build(input_shape)
+
+    def _random_features(self, inputs):
+        if self.normalize_input:
+            inputs = self.input_norm(inputs)
+        phi = tf.cos(tf.matmul(inputs, self.rff_w) + self.rff_b)
+        if self.scale_random_features:
+            phi = phi * self._rff_scale
+        return phi
+
+    def call(self, inputs, training=None):
+        phi = self._random_features(inputs)
+        logits = tf.matmul(phi, self.beta) + self.output_bias
+
+        if training:
+            batch_prec = tf.matmul(phi, phi, transpose_a=True)
+            if self.gp_cov_momentum < 0:
+                self.precision.assign_add(batch_prec)
+            else:
+                self.precision.assign(
+                    self.gp_cov_momentum * self.precision
+                    + (1 - self.gp_cov_momentum) * batch_prec
+                )
+
+        prec_with_ridge = self.precision + self.ridge_penalty * tf.eye(self.num_inducing)
+        covmat = tf.matmul(tf.matmul(phi, tf.linalg.inv(prec_with_ridge)), phi, transpose_b=True)
+        return logits, covmat
+
+    def reset_covariance_matrix(self):
+        self.precision.assign(tf.eye(self.num_inducing))
 
 class MonteCarloDropout(tf.keras.layers.Dropout):
   def call(self, inputs):
@@ -136,7 +244,7 @@ def make_sngp_model(input_shape, output_dim, layers, activation_fn, dropout_rate
                                               activity_regularizer=tf.keras.regularizers.L2(regularization_pen))
             else:
                 dense = tf.keras.layers.Dense(units, activation=activation_fn)
-            dense = nlp_layers.SpectralNormalization(dense, norm_multiplier=spec_norm_bound)
+            dense = SpectralNormalization(dense, norm_multiplier=spec_norm_bound)
             hidden = dense(inputs)
             if dropout_rate is not None:
                 hidden = tf.keras.layers.Dropout(dropout_rate)(hidden)
@@ -146,16 +254,16 @@ def make_sngp_model(input_shape, output_dim, layers, activation_fn, dropout_rate
                                               activity_regularizer=tf.keras.regularizers.L2(regularization_pen))
             else:
                 dense = tf.keras.layers.Dense(units, activation=activation_fn)
-            dense = nlp_layers.SpectralNormalization(dense, norm_multiplier=spec_norm_bound)
+            dense = SpectralNormalization(dense, norm_multiplier=spec_norm_bound)
             hidden = dense(hidden)
             if dropout_rate is not None:
                 hidden = tf.keras.layers.Dropout(dropout_rate)(hidden)
             
-    output = nlp_layers.RandomFeatureGaussianProcess(units=output_dim,
-                                                     num_inducing=1024,
-                                                     normalize_input=False,
-                                                     scale_random_features=True,
-                                                     gp_cov_momentum=-1)(hidden)
+    output = RandomFeatureGaussianProcess(units=output_dim,
+                                          num_inducing=1024,
+                                          normalize_input=False,
+                                          scale_random_features=True,
+                                          gp_cov_momentum=-1)(hidden)
     model = tf.keras.Model(inputs=inputs, outputs=output)
     
     return model

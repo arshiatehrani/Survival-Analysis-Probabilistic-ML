@@ -34,7 +34,7 @@ from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
 import os
-from tqdm import tqdm
+
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -82,18 +82,18 @@ if __name__ == "__main__":
     print(f"Models: {MODELS}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset
-    for dataset_name in tqdm(DATASETS, desc="Datasets", position=0):
+    for dataset_name in DATASETS:
         # Load data
         dl = get_data_loader(dataset_name).load_data()
         num_features, cat_features = dl.get_features()
         df = dl.get_data()
 
         event_rate = df["event"].mean()
-        tqdm.write(f"\n{'='*60}")
-        tqdm.write(f"Dataset: {dataset_name} | Samples: {len(df)} | "
+        print(f"\n{'='*60}")
+        print(f"Dataset: {dataset_name} | Samples: {len(df)} | "
                    f"Features: {len(num_features)} num + {len(cat_features)} cat | "
                    f"Event rate: {event_rate:.1%}")
-        tqdm.write(f"{'='*60}")
+        print(f"{'='*60}")
 
         # Split data
         df_train, df_valid, df_test = make_stratified_split(df, stratify_colname='both', frac_train=0.7,
@@ -101,7 +101,7 @@ if __name__ == "__main__":
         X_train = df_train[cat_features+num_features]
         X_valid = df_valid[cat_features+num_features]
         X_test = df_test[cat_features+num_features]
-        tqdm.write(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
+        print(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
         y_train = convert_to_structured(df_train["time"], df_train["event"])
         y_valid = convert_to_structured(df_valid["time"], df_valid["event"])
         y_test = convert_to_structured(df_test["time"], df_test["event"])
@@ -127,9 +127,8 @@ if __name__ == "__main__":
         event_times_pct = calculate_percentiles(event_times)
         mtlr_times_pct = calculate_percentiles(mtlr_times)
         
-        model_pbar = tqdm(MODELS, desc=f"{dataset_name} models", position=1, leave=False)
-        for model_name in model_pbar:
-            model_pbar.set_postfix_str(model_name)
+        for i, model_name in enumerate(MODELS):
+            print(f"\n[{dataset_name}] ({i+1}/{len(MODELS)}) Training {model_name} ...", flush=True)
             # Get batch size for MLP to use for loss calculation
             mlp_config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
             batch_size = mlp_config['batch_size']
@@ -221,7 +220,7 @@ if __name__ == "__main__":
                                         random_state=0, reset_model=True, device=device)
                 train_time = time() - train_start_time
             
-            tqdm.write(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s")
+            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s")
 
             # Compute survival function
             test_start_time = time()
@@ -340,7 +339,7 @@ if __name__ == "__main__":
             res_df['DatasetName'] = dataset_name
             results = pd.concat([results, res_df], axis=0)
 
-            tqdm.write(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+            print(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
 
             if USE_WANDB:
                 wandb.log({
@@ -359,7 +358,7 @@ if __name__ == "__main__":
             else:
                 path = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}.joblib")
                 joblib.dump(model, path)
-            tqdm.write(f"  -> Model saved: {path}")
+            print(f"  -> Model saved: {path}")
 
             # Save results
             results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"sota_results.csv"), index=False)

@@ -62,8 +62,6 @@ pip install --no-index -r requirements_cc.txt
 
 # TFP 0.25 needs tf-keras
 pip install --no-index tf-keras
-# SNGP model needs tf-models-official; --no-deps prevents it from downgrading TF
-pip install --no-index --no-deps tf-models-official
 
 pip check
 

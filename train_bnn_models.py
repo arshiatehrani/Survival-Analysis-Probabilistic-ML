@@ -34,7 +34,7 @@ from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
 import os
-from tqdm import tqdm
+
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     print(f"Epochs: {N_EPOCHS}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset, train models and plot scores
-    for dataset_name in tqdm(DATASETS, desc="Datasets", position=0):
+    for dataset_name in DATASETS:
         
         # Load training parameters
         config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
@@ -108,13 +108,13 @@ if __name__ == "__main__":
         df = dl.get_data()
 
         event_rate = df["event"].mean()
-        tqdm.write(f"\n{'='*60}")
-        tqdm.write(f"Dataset: {dataset_name} | Samples: {len(df)} | "
+        print(f"\n{'='*60}")
+        print(f"Dataset: {dataset_name} | Samples: {len(df)} | "
                    f"Features: {len(num_features)} num + {len(cat_features)} cat | "
                    f"Event rate: {event_rate:.1%}")
-        tqdm.write(f"Config: layers={layers}, batch={batch_size}, lr={optimizer.learning_rate.numpy():.1e}, "
+        print(f"Config: layers={layers}, batch={batch_size}, lr={optimizer.learning_rate.numpy():.1e}, "
                    f"epochs={N_EPOCHS}, early_stop={early_stop}, patience={patience}")
-        tqdm.write(f"{'='*60}")
+        print(f"{'='*60}")
 
         # Split data
         df_train, df_valid, df_test = make_stratified_split(df, stratify_colname='both', frac_train=0.7,
@@ -122,7 +122,7 @@ if __name__ == "__main__":
         X_train = df_train[cat_features+num_features]
         X_valid = df_valid[cat_features+num_features]
         X_test = df_test[cat_features+num_features]
-        tqdm.write(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
+        print(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
         y_train = convert_to_structured(df_train["time"], df_train["event"])
         y_valid = convert_to_structured(df_valid["time"], df_valid["event"])
         y_test = convert_to_structured(df_test["time"], df_test["event"])
@@ -153,9 +153,8 @@ if __name__ == "__main__":
 
         # Make models
         
-        model_pbar = tqdm(MODELS, desc=f"{dataset_name} models", position=1, leave=False)
-        for model_name in model_pbar:
-            model_pbar.set_postfix_str(model_name)
+        for i, model_name in enumerate(MODELS):
+            print(f"\n[{dataset_name}] ({i+1}/{len(MODELS)}) Training {model_name} ...", flush=True)
 
             if USE_WANDB:
                 wandb.init(
@@ -219,7 +218,7 @@ if __name__ == "__main__":
             train_start_time = time()
             trainer.train_and_evaluate()
             train_time = time() - train_start_time
-            tqdm.write(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s (best epoch: {trainer.best_ep})")
+            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s (best epoch: {trainer.best_ep})")
 
             # Get model for best epoch
             best_ep = trainer.best_ep
@@ -301,7 +300,7 @@ if __name__ == "__main__":
             res_df['DatasetName'] = dataset_name
             test_results = pd.concat([test_results, res_df], axis=0)
 
-            tqdm.write(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+            print(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
 
             if USE_WANDB:
                 wandb.log({
@@ -330,7 +329,7 @@ if __name__ == "__main__":
             weights_dir.mkdir(parents=True, exist_ok=True)
             path = weights_dir / "weights.weights.h5"
             model.save_weights(path)
-            tqdm.write(f"  -> Model saved: {path}")
+            print(f"  -> Model saved: {path}")
 
             # Save results
             training_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_training_results.csv"), index=False)

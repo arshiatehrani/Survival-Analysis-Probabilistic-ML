@@ -133,8 +133,7 @@ class SeerDataLoader(BaseDataLoader):
         outcomes['event'] =  data['Status']
         outcomes['time'] = data['Survival Months']
         outcomes = outcomes[['event', 'time']]
-        outcomes.loc[outcomes['event'] == 'Alive', ['event']] = 0
-        outcomes.loc[outcomes['event'] == 'Dead', ['event']] = 1
+        outcomes['event'] = outcomes['event'].map({'Alive': 0, 'Dead': 1}).astype(int)
 
         data = data.drop(['Status', "Survival Months"], axis=1)
 
