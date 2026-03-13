@@ -23,8 +23,7 @@ from utility.loss import CoxPHLoss, CoxPHLossGaussian
 from pathlib import Path
 import paths as pt
 from utility.survival import (calculate_event_times, calculate_percentiles, convert_to_structured,
-                              compute_deterministic_survival_curve, compute_nondeterministic_survival_curve,
-                              compute_nondeterministic_survival_curve_mean)
+                              compute_deterministic_survival_curve, compute_nondeterministic_survival_curve)
 from utility.training import make_stratified_split
 from time import time
 from tools.evaluator import LifelinesEvaluator
@@ -319,10 +318,10 @@ if __name__ == "__main__":
                 surv_preds = compute_deterministic_survival_curve(model, X_train, X_test,
                                                                   e_train, t_train, event_times, model_name)
             else:
-                surv_preds = compute_nondeterministic_survival_curve_mean(
+                surv_preds = np.mean(compute_nondeterministic_survival_curve(
                     model, np.array(X_train), np.array(X_test),
                     e_train, t_train, event_times,
-                    n_samples_train, n_samples_test)
+                    n_samples_train, n_samples_test), axis=0)
             test_time = time() - test_start_time
             
             # Make dataframe
