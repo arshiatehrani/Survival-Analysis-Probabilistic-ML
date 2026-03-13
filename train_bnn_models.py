@@ -37,6 +37,7 @@ from tools.Evaluations.util import make_monotonic, check_monotonicity
 
 import argparse
 import os
+from tools.results_generator import ResultsGenerator, TeeLogger
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -138,6 +139,9 @@ if __name__ == "__main__":
         import wandb
         os.environ["WANDB_SILENT"] = "true"
 
+    logger = TeeLogger.start(Path.joinpath(pt.RESULTS_DIR, "bnn_training_log.txt"))
+    rg = ResultsGenerator(pt.RESULTS_DIR)
+
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
     print(f"Epochs: {N_EPOCHS}")
@@ -212,6 +216,9 @@ if __name__ == "__main__":
 
         # Make models
         
+        all_calib_data = {}
+        trained_models = []
+
         for i, model_name in enumerate(MODELS):
             print(f"\n[{dataset_name}] ({i+1}/{len(MODELS)}) Training {model_name} ...", flush=True)
 
@@ -378,13 +385,28 @@ if __name__ == "__main__":
             res_df['ModelName'] = model_name
             res_df['DatasetName'] = dataset_name
             res_df['NParams'] = n_params if n_params else 0
-            test_results = pd.concat([test_results, res_df], axis=0)
 
             dcal_str = f"{d_calib:.3f}" if d_calib > 0.05 else f"{d_calib:.3f}*"
             ccal_str = f"{c_calib:.3f}" if model_name in ['vi', 'mcd1', 'mcd2', 'mcd3'] else "-"
             print(f"  -> Inference: {test_time:.2f}s")
             print(f"     CI: {ci:.4f} | IBS: {ibs:.4f} | MAE_H: {mae_hinge:.2f} | MAE_PO: {mae_pseudo:.2f}")
             print(f"     ICI: {ici:.4f} | D-Cal: {dcal_str} | C-Cal: {ccal_str}")
+
+            ext_metrics, calib_data = rg.generate_all(
+                evaluator=lifelines_eval,
+                event_times=event_times,
+                t_test=sanitized_t_test,
+                e_test=sanitized_e_test,
+                dataset_name=dataset_name,
+                model_name=model_name,
+                surv_preds_df=sanitized_surv_preds,
+                event_times_pct=event_times_pct,
+            )
+            for k, v in ext_metrics.items():
+                res_df[k] = v
+            all_calib_data[model_name] = calib_data
+            trained_models.append(model_name)
+            test_results = pd.concat([test_results, res_df], axis=0)
 
             if USE_WANDB:
                 wandb.log({
@@ -422,4 +444,12 @@ if __name__ == "__main__":
             # Save results
             training_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_training_results.csv"), index=False)
             test_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_test_results.csv"), index=False)
-        
+
+        # After all models for this dataset: joint calibration + loss curves
+        rg.plot_calibration_curves_all(all_calib_data, event_times_pct,
+                                        trained_models, dataset_name)
+        rg.plot_training_loss_curves(training_results, dataset_name,
+                                      trained_models)
+
+    logger.close()
+

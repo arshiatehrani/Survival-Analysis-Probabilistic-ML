@@ -114,10 +114,18 @@ mkdir -p models results
 #   python train_bnn_models.py --wandb --wandb-project my-project
 #
 # Outputs saved to:
-#   results/sota_results.csv           - Table II & III metrics + NParams for SOTA models
-#   results/baysurv_test_results.csv   - Table II & III metrics + NParams for BNN models
+#   results/sota_results.csv           - Table II & III metrics + extended metrics for SOTA models
+#   results/baysurv_test_results.csv   - Table II & III metrics + extended metrics for BNN models
 #   results/baysurv_training_results.csv - Per-epoch loss & variance curves
-#   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2)
+#   results/sota_training_log.txt      - Full stdout log from SOTA training
+#   results/bnn_training_log.txt       - Full stdout log from BNN training
+#   results/*_survival_curves.pdf      - Individual survival curves per model
+#   results/*_brier_curve.pdf          - Time-dependent Brier score BS(t) per model
+#   results/*_pred_vs_actual.pdf       - Predicted vs actual survival time scatter
+#   results/*_time_histogram.pdf       - Predicted survival time distribution
+#   results/*_calibration.pdf          - Calibration curves (all models per dataset)
+#   results/*_training_curves.pdf      - Train/valid loss curves per dataset (BNN only)
+#   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2, BNN only)
 #   models/                            - Saved model weights
 
 echo "Starting train_sota_models.py at $(date)"
