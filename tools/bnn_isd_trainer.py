@@ -57,11 +57,12 @@ def train_bnn_model(
     best_val_nll = np.inf
     best_ep = -1
 
-    def _progress(epoch, total, train_loss, val_loss, val_nll):
-        pct = epoch * 100 // total
-        bar = f"{'█' * (pct // 5)}{'░' * (20 - pct // 5)}"
+    def _progress(epoch, total, train_loss, kl, train_nll, val_loss, val_nll):
+        pct = min(100, epoch * 100 // total)
+        bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
         msg = (f"\r  [{bar}] {epoch}/{total} "
-               f"loss={train_loss:.4f} val={val_loss:.4f} val_nll={val_nll:.4f}")
+               f"Train: Total={train_loss:.4f}, KL={kl:.4f}, nll={train_nll:.4f}; "
+               f"Val: Total={val_loss:.4f}, nll={val_nll:.4f}")
         sys.stdout.write(msg)
         sys.stdout.flush()
 
@@ -94,14 +95,17 @@ def train_bnn_model(
                 total_kl_divergence += log_variational_posterior.item() - log_prior.item()
 
             val_loss, _, _, val_log_likelihood = model.sample_elbo(x_val, t_val, e_val, dataset_size=val_size)
+            val_loss_f = float(val_loss.item())
+            val_nll_f = float(val_log_likelihood.item())
             if config.verbose:
-                _progress(i + 1, config.num_epochs, total_loss, val_loss.item(), val_log_likelihood.item())
+                _progress(i + 1, config.num_epochs, total_loss, total_kl_divergence,
+                          total_log_likelihood, val_loss_f, val_nll_f)
             if config.early_stop:
-                if best_val_nll > val_loss:
-                    best_val_nll = val_loss
+                if best_val_nll > val_loss_f:
+                    best_val_nll = val_loss_f
                     best_ep = i
                 if (i - best_ep) > config.patience:
-                    print(f"\n  Early stop at epoch {best_ep + 1}, val_loss={float(best_val_nll):.4f}")
+                    print(f"\n  Early stop at epoch {best_ep + 1}, val_loss={best_val_nll:.4f}")
                     break
     elif isinstance(model, BayesEleMtlr):
         x, y = reformat_survival(data_train, time_bins)
@@ -128,14 +132,17 @@ def train_bnn_model(
             val_loss, _, _, val_log_likelihood = model.sample_elbo(x_val, y_val, dataset_size=val_size)
             val_loss /= val_size
             val_log_likelihood /= val_size
+            val_loss_f = float(val_loss.item())
+            val_nll_f = float(val_log_likelihood.item())
             if config.verbose:
-                _progress(i + 1, config.num_epochs, total_loss, val_loss.item(), val_log_likelihood.item())
+                _progress(i + 1, config.num_epochs, total_loss, total_kl_divergence,
+                          total_log_likelihood, val_loss_f, val_nll_f)
             if config.early_stop:
-                if best_val_nll > val_loss:
-                    best_val_nll = val_loss
+                if best_val_nll > val_loss_f:
+                    best_val_nll = val_loss_f
                     best_ep = i
                 if (i - best_ep) > config.patience:
-                    print(f"\n  Early stop at epoch {best_ep + 1}, val_loss={float(best_val_nll):.4f}")
+                    print(f"\n  Early stop at epoch {best_ep + 1}, val_loss={best_val_nll:.4f}")
                     break
     
     else:

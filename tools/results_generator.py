@@ -108,13 +108,17 @@ class ResultsGenerator:
     # Item 5 / 6 / 7 / 8: Extended metrics
     # ------------------------------------------------------------------
 
-    def compute_extended_metrics(self, evaluator, event_times):
+    def compute_extended_metrics(self, evaluator, event_times, event_times_for_pct=None):
         """Compute metrics beyond the paper's standard set.
 
         Returns a dict with:
           MSE_Hinge, RMSE_Hinge, X_Cal,
           AUC_25, AUC_50, AUC_75,
           One_Cal_25, One_Cal_50, One_Cal_75
+
+        event_times_for_pct: optional array of times for percentile calculation.
+          If None, uses event_times. Use np.concatenate([t_train, t_test]) for
+          better AUC/One-Cal balance (avoids single-class at extreme percentiles).
         """
         metrics = {}
 
@@ -128,14 +132,26 @@ class ResultsGenerator:
             except Exception:
                 metrics[name] = np.nan
 
-        event_times_pct = calculate_percentiles(event_times)
+        times_for_pct = event_times_for_pct if event_times_for_pct is not None else event_times
+        times_for_pct = np.asarray(times_for_pct).ravel()
+        median_time = float(np.median(times_for_pct)) if len(times_for_pct) > 0 else np.nan
+
+        event_times_pct = calculate_percentiles(times_for_pct)
         for q, t0 in event_times_pct.items():
-            for prefix, fn in [
-                (f"AUC_{q}", lambda _t=t0: float(evaluator.auc(_t))),
-                (f"One_Cal_{q}", lambda _t=t0: float(evaluator.one_calibration(_t)[0])),
+            for prefix, fn, fallback_fn in [
+                (f"AUC_{q}", lambda _t=t0: float(evaluator.auc(_t)),
+                 lambda: float(evaluator.auc(median_time))),
+                (f"One_Cal_{q}", lambda _t=t0: float(evaluator.one_calibration(_t)[0]),
+                 lambda: float(evaluator.one_calibration(median_time)[0])),
             ]:
                 try:
-                    metrics[prefix] = fn()
+                    val = fn()
+                    if np.isnan(val) and not np.isnan(median_time):
+                        try:
+                            val = fallback_fn()
+                        except Exception:
+                            pass
+                    metrics[prefix] = val
                 except Exception:
                     metrics[prefix] = np.nan
 
@@ -371,8 +387,9 @@ class ResultsGenerator:
     # ------------------------------------------------------------------
 
     def generate_all(self, evaluator, event_times, t_test, e_test,
-                      dataset_name, model_name,
-                      surv_preds_df=None, event_times_pct=None):
+                     dataset_name, model_name,
+                     surv_preds_df=None, event_times_pct=None,
+                     event_times_for_pct=None):
         """Compute extended metrics and generate all plots for one model.
 
         Parameters
@@ -397,7 +414,8 @@ class ResultsGenerator:
             Calibration data for this model (pass to
             ``plot_calibration_curves_all`` after all models finish).
         """
-        ext_metrics = self.compute_extended_metrics(evaluator, event_times)
+        ext_metrics = self.compute_extended_metrics(
+            evaluator, event_times, event_times_for_pct=event_times_for_pct)
 
         # Print extended metrics
         mse_h = ext_metrics.get("MSE_Hinge", np.nan)

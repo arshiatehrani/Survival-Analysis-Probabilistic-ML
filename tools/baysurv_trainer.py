@@ -42,12 +42,16 @@ class Trainer:
         self.manager = tf.train.CheckpointManager(self.checkpoint, directory=f"{pt.MODELS_DIR}", max_to_keep=num_epochs)
         
     def _progress(self, epoch):
-        pct = epoch * 100 // self.num_epochs
-        bar = f"{'█' * (pct // 5)}{'░' * (20 - pct // 5)}"
+        pct = min(100, epoch * 100 // self.num_epochs)
+        bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
         t_loss = self.train_loss[-1] if self.train_loss else 0.0
-        parts = f"loss={t_loss:.4f}"
+        parts = f"Train: loss={t_loss:.4f}"
+        if self.train_variance:
+            parts += f" var={self.train_variance[-1]:.4f}"
         if self.valid_loss:
-            parts += f" val={self.valid_loss[-1]:.4f}"
+            parts += f"; Val: loss={self.valid_loss[-1]:.4f}"
+            if self.valid_variance:
+                parts += f" var={self.valid_variance[-1]:.4f}"
         msg = f"\r  [{bar}] {epoch}/{self.num_epochs} {parts}"
         sys.stdout.write(msg)
         sys.stdout.flush()

@@ -392,6 +392,7 @@ if __name__ == "__main__":
             print(f"     CI: {ci:.4f} | IBS: {ibs:.4f} | MAE_H: {mae_hinge:.2f} | MAE_PO: {mae_pseudo:.2f}")
             print(f"     ICI: {ici:.4f} | D-Cal: {dcal_str} | C-Cal: {ccal_str}")
 
+            times_for_pct = np.concatenate([t_train, t_test])
             ext_metrics, calib_data = rg.generate_all(
                 evaluator=lifelines_eval,
                 event_times=event_times,
@@ -401,6 +402,7 @@ if __name__ == "__main__":
                 model_name=model_name,
                 surv_preds_df=sanitized_surv_preds,
                 event_times_pct=event_times_pct,
+                event_times_for_pct=times_for_pct,
             )
             for k, v in ext_metrics.items():
                 res_df[k] = v

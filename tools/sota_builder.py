@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
@@ -16,6 +17,21 @@ class dotdict(dict):
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
+
+
+def _pycox_progress_callback(n_epochs):
+    """Single-line progress callback for pycox fit (DSM/DCM)."""
+    class _ProgressCb:
+        def __init__(self):
+            self.epoch = 0
+        def on_epoch_end(self, *args, **kwargs):
+            self.epoch += 1
+            pct = min(100, self.epoch * 100 // n_epochs)
+            bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
+            msg = f"\r  [{bar}] {self.epoch}/{n_epochs}"
+            sys.stdout.write(msg)
+            sys.stdout.flush()
+    return _ProgressCb()
 
 def make_baycox_model(num_features, config):
     return BayesCox(in_features=num_features, config=config)
@@ -149,8 +165,17 @@ class DeepHitDSMWrapper(_PyCoxWrapper):
             val = self._prepare_val(val_data)
 
         x_train = np.asarray(X_train).astype('float32')
-        self.model.fit(x_train, y_train_trans, batch_size=32,
-                       epochs=self.n_epochs, val_data=val, verbose=False)
+        cb = _pycox_progress_callback(self.n_epochs)
+        try:
+            self.model.fit(x_train, y_train_trans, batch_size=32,
+                          epochs=self.n_epochs, val_data=val, verbose=False,
+                          callbacks=[cb])
+        except TypeError:
+            self.model.fit(x_train, y_train_trans, batch_size=32,
+                          epochs=self.n_epochs, val_data=val, verbose=False)
+        finally:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         return self
 
     def predict_survival(self, X_test, times=None, t=None):
@@ -255,8 +280,17 @@ class LogisticHazardDCMWrapper(_PyCoxWrapper):
             val = self._prepare_val(val_data)
 
         x_train = np.asarray(X_train).astype('float32')
-        self.model.fit(x_train, y_train_trans, batch_size=32,
-                       epochs=self.n_epochs, val_data=val, verbose=False)
+        cb = _pycox_progress_callback(self.n_epochs)
+        try:
+            self.model.fit(x_train, y_train_trans, batch_size=32,
+                          epochs=self.n_epochs, val_data=val, verbose=False,
+                          callbacks=[cb])
+        except TypeError:
+            self.model.fit(x_train, y_train_trans, batch_size=32,
+                          epochs=self.n_epochs, val_data=val, verbose=False)
+        finally:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         return self
 
     def predict_survival(self, X_test, times=None, t=None):
