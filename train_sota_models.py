@@ -11,7 +11,7 @@ import pandas as pd
 from utility.survival import make_time_bins, calculate_event_times, calculate_percentiles, compute_deterministic_survival_curve
 from utility.training import get_data_loader, scale_data, split_time_event
 from tools.sota_builder import make_cox_model, make_coxnet_model, make_coxboost_model
-from tools.sota_builder import make_rsf_model, make_dsm_model, make_dcph_model, make_dcm_model
+from tools.sota_builder import make_rsf_model, make_dsm_model, make_dcm_model
 from tools.sota_builder import make_baycox_model, make_baymtlr_model
 from tools.bnn_isd_trainer import train_bnn_model
 from utility.bnn_isd_models import make_ensemble_cox_prediction, make_ensemble_mtlr_prediction
@@ -50,6 +50,22 @@ class dotdict(dict):
     __getattr__ = dict.get
     __setattr__ = dict.__setitem__
     __delattr__ = dict.__delitem__
+
+def count_parameters(model, model_name):
+    """Count trainable parameters for any model type."""
+    try:
+        if model_name in ["baycox", "baymtlr"]:
+            return sum(p.numel() for p in model.parameters() if p.requires_grad)
+        elif model_name in ["dsm", "dcm"]:
+            return sum(p.numel() for p in model.torch_model.parameters() if p.requires_grad)
+        elif hasattr(model, 'count_params'):
+            return model.count_params()
+        elif hasattr(model, 'coef_'):
+            return np.prod(model.coef_.shape)
+        else:
+            return None
+    except Exception:
+        return None
 
 ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
 ALL_MODELS = ["cox", "coxnet", "coxboost", "rsf", "dsm", "dcm", "baycox", "baymtlr"]
@@ -137,8 +153,8 @@ if __name__ == "__main__":
             config_dirs = {
                 "cox": pt.COX_CONFIGS_DIR, "coxnet": pt.COXNET_CONFIGS_DIR,
                 "coxboost": pt.COXBOOST_CONFIGS_DIR, "rsf": pt.RSF_CONFIGS_DIR,
-                "dsm": pt.DSM_CONFIGS_DIR, "dcph": pt.DCPH_CONFIGS_DIR,
-                "dcm": pt.DCM_CONFIGS_DIR, "baycox": pt.BAYCOX_CONFIGS_DIR,
+                "dsm": pt.DSM_CONFIGS_DIR, "dcm": pt.DCM_CONFIGS_DIR,
+                "baycox": pt.BAYCOX_CONFIGS_DIR,
                 "baymtlr": pt.BAYMTLR_CONFIGS_DIR,
             }
             config = load_config(config_dirs[model_name], f"{dataset_name.lower()}.yaml")
@@ -186,11 +202,6 @@ if __name__ == "__main__":
                 train_start_time = time()
                 model.fit(X_train, pd.DataFrame(y_train), val_data=(X_valid, pd.DataFrame(y_valid)))
                 train_time = time() - train_start_time
-            elif model_name == "dcph":
-                model = make_dcph_model(config, in_features=X_train.shape[1])
-                train_start_time = time()
-                model.fit(X_train, t_train, e_train, val_data=(X_valid, t_valid, e_valid))
-                train_time = time() - train_start_time
             elif model_name == "dcm":
                 model = make_dcm_model(config, in_features=X_train.shape[1])
                 train_start_time = time()
@@ -220,14 +231,14 @@ if __name__ == "__main__":
                                         random_state=0, reset_model=True, device=device)
                 train_time = time() - train_start_time
             
-            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s")
+            n_params = count_parameters(model, model_name)
+            params_str = f" | params: {n_params:,}" if n_params else ""
+            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s{params_str}")
 
             # Compute survival function
             test_start_time = time()
             if model_name == "dsm":
                 surv_preds = model.predict_survival(X_test, times=list(event_times))
-            elif model_name == "dcph":
-                surv_preds = model.predict_survival(X_test, t=list(event_times))
             elif model_name == "dcm":
                 surv_preds = model.predict_survival(X_test, times=list(event_times))
             elif model_name == "rsf": # uses KM estimator instead
@@ -337,9 +348,14 @@ if __name__ == "__main__":
                                                                      "INBLL", "CCalib", "ICI", "TrainTime", "TestTime"])
             res_df['ModelName'] = model_name
             res_df['DatasetName'] = dataset_name
+            res_df['NParams'] = n_params if n_params else 0
             results = pd.concat([results, res_df], axis=0)
 
-            print(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+            dcal_str = f"{d_calib:.3f}" if d_calib > 0.05 else f"{d_calib:.3f}*"
+            ccal_str = f"{c_calib:.3f}" if model_name in ['baycox', 'baymtlr'] else "-"
+            print(f"  -> Inference: {test_time:.2f}s")
+            print(f"     CI: {ci:.4f} | IBS: {ibs:.4f} | MAE_H: {mae_hinge:.2f} | MAE_PO: {mae_pseudo:.2f}")
+            print(f"     ICI: {ici:.4f} | D-Cal: {dcal_str} | C-Cal: {ccal_str}")
 
             if USE_WANDB:
                 wandb.log({

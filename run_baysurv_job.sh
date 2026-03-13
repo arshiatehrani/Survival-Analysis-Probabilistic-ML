@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-00:30:00
+#SBATCH --time=0-06:00:00
 #SBATCH --account=def-bakhshai
-#SBATCH --mem=16G
+#SBATCH --mem=32G
 #SBATCH --gpus-per-node=h100:1
 #SBATCH --cpus-per-task=8
 #SBATCH --ntasks-per-node=1
@@ -82,37 +82,48 @@ mkdir -p models results
 ############################
 # 5. Run training scripts #
 ############################
-# Without arguments, all datasets and models run (default behavior).
+#
+# There are 14 models total, split across two scripts:
+#
+#   train_sota_models.py (8 models):
+#     cox, coxnet, coxboost, rsf, dsm, dcm, baycox, baymtlr
+#
+#   train_bnn_models.py (6 models):
+#     mlp, sngp, mcd1, mcd2, mcd3, vi
+#
+# Datasets: SUPPORT, SEER, METABRIC, MIMIC
+#
+# WITHOUT any arguments, BOTH scripts train ALL their models on ALL datasets.
 # Use --datasets and --models to select subsets.
-# Add --wandb to enable experiment tracking (requires wandb login).
+# Add --wandb to enable experiment tracking (requires WANDB_API_KEY above).
 #
-# SOTA models: cox, coxnet, coxboost, rsf, dsm, dcm, baycox, baymtlr
-# BNN models:  mlp, sngp, mcd1, mcd2, mcd3, vi
-# Datasets:    SUPPORT, SEER, METABRIC, MIMIC
-#
-# Examples:
+# Examples - run specific models/datasets:
 #   python train_sota_models.py --datasets SUPPORT --models cox baycox
 #   python train_sota_models.py --models dsm dcm
-#   python train_sota_models.py --datasets SUPPORT METABRIC
 #   python train_bnn_models.py --datasets SUPPORT --models mlp vi
 #   python train_bnn_models.py --epochs 50
 #
-# With wandb tracking:
+# Examples - BNN-specific flags:
+#   python train_bnn_models.py --cri-samples 1000      # MC samples for CrI plot (paper=1000, default=1000)
+#   python train_bnn_models.py --cri-samples 100       # Faster but lower quality CrI plots
+#   python train_bnn_models.py --no-early-stop         # Run all epochs (ignore config early_stop)
+#   python train_bnn_models.py --no-early-stop --epochs 200
+#
+# Examples - with wandb:
 #   python train_sota_models.py --wandb
-#   python train_bnn_models.py --wandb
-#   python train_sota_models.py --wandb --wandb-project my-project --datasets SUPPORT
-#   python train_bnn_models.py --wandb --wandb-project my-project --models mlp vi
+#   python train_bnn_models.py --wandb --wandb-project my-project
+#
+# Outputs saved to:
+#   results/sota_results.csv           - Table II & III metrics + NParams for SOTA models
+#   results/baysurv_test_results.csv   - Table II & III metrics + NParams for BNN models
+#   results/baysurv_training_results.csv - Per-epoch loss & variance curves
+#   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2)
+#   models/                            - Saved model weights
 
 echo "Starting train_sota_models.py at $(date)"
-python train_sota_models.py --datasets SEER --models cox
+python train_sota_models.py
 
 echo "Starting train_bnn_models.py at $(date)"
-python train_bnn_models.py --datasets SUPPORT --models sngp
-
-# echo "Starting train_sota_models.py at $(date)"
-# python train_sota_models.py
-
-# echo "Starting train_bnn_models.py at $(date)"
-# python train_bnn_models.py
+python train_bnn_models.py
 
 echo "Job finished on $(date)"

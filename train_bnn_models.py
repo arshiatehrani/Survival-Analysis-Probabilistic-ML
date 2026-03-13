@@ -52,6 +52,54 @@ ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
 ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi"]
 N_EPOCHS = 100
 
+def count_parameters(model):
+    """Count trainable parameters for a Keras model."""
+    try:
+        return model.count_params()
+    except Exception:
+        return None
+
+def plot_credible_interval(event_times, surv_ensemble, actual_time, actual_event,
+                           model_name, dataset_name, sample_idx, save_dir):
+    """Plot individual survival curve with 90% credible interval (Figure 2 from paper)."""
+    surv_sample = surv_ensemble[:, sample_idx, :]  # (n_samples, n_times)
+    mean_surv = np.mean(surv_sample, axis=0)
+    lower = np.percentile(surv_sample, 5, axis=0)
+    upper = np.percentile(surv_sample, 95, axis=0)
+    median_time_idx = np.searchsorted(-mean_surv, -0.5)
+    median_time = event_times[min(median_time_idx, len(event_times) - 1)]
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+    ax1.plot(event_times, mean_surv, 'b-', linewidth=2, label='Mean S(t)')
+    ax1.fill_between(event_times, lower, upper, alpha=0.3, color='blue', label='90% CrI')
+    ax1.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
+    ax1.axvline(x=median_time, color='red', linestyle='--', alpha=0.7, label=f'Median: {median_time:.0f}')
+    if actual_event == 1:
+        ax1.axvline(x=actual_time, color='green', linestyle='-', alpha=0.7, label=f'Actual: {actual_time:.0f}')
+    ax1.set_xlabel('Time')
+    ax1.set_ylabel('Survival Probability')
+    ax1.set_ylim(0, 1.05)
+    ax1.set_title(f'{model_name.upper()} - Individual Survival Function')
+    ax1.legend(fontsize=8)
+
+    median_times = []
+    for s in range(surv_sample.shape[0]):
+        idx = np.searchsorted(-surv_sample[s], -0.5)
+        median_times.append(event_times[min(idx, len(event_times) - 1)])
+    ax2.hist(median_times, bins=30, color='steelblue', edgecolor='white', alpha=0.8)
+    ax2.axvline(x=np.mean(median_times), color='red', linestyle='--', label=f'Mean: {np.mean(median_times):.0f}')
+    ax2.set_xlabel('Predicted Survival Time')
+    ax2.set_ylabel('Count')
+    ax2.set_title(f'{model_name.upper()} - Predicted Time Distribution')
+    ax2.legend(fontsize=8)
+
+    fig.suptitle(f'{dataset_name} - Sample #{sample_idx}', fontsize=12)
+    plt.tight_layout()
+    save_path = Path(save_dir) / f"{dataset_name.lower()}_{model_name}_cri_sample{sample_idx}.pdf"
+    fig.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+    return save_path
+
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     for gpu in gpus:
@@ -71,6 +119,10 @@ if __name__ == "__main__":
                         choices=ALL_MODELS, help="Models to train (default: all)")
     parser.add_argument("--epochs", type=int, default=N_EPOCHS,
                         help="Number of training epochs (default: 100)")
+    parser.add_argument("--cri-samples", type=int, default=1000,
+                        help="Number of MC samples for CrI visualization (paper uses 1000, default: 1000)")
+    parser.add_argument("--no-early-stop", action="store_true",
+                        help="Disable early stopping (overrides config files)")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
     parser.add_argument("--wandb-project", default="baysurv-bnn", help="wandb project name")
     args = parser.parse_args()
@@ -78,6 +130,8 @@ if __name__ == "__main__":
     DATASETS = args.datasets
     MODELS = args.models
     N_EPOCHS = args.epochs
+    CRI_SAMPLES = args.cri_samples
+    DISABLE_EARLY_STOP = args.no_early_stop
     USE_WANDB = args.wandb
 
     if USE_WANDB:
@@ -87,6 +141,8 @@ if __name__ == "__main__":
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
     print(f"Epochs: {N_EPOCHS}")
+    print(f"Early stopping: {'disabled (--no-early-stop)' if DISABLE_EARLY_STOP else 'per config'}")
+    print(f"CrI samples: {CRI_SAMPLES}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset, train models and plot scores
     for dataset_name in DATASETS:
@@ -98,7 +154,7 @@ if __name__ == "__main__":
         layers = config['network_layers']
         l2_reg = config['l2_reg']
         batch_size = config['batch_size']
-        early_stop = config['early_stop']
+        early_stop = config['early_stop'] if not DISABLE_EARLY_STOP else False
         patience = config['patience']
         n_samples_train = config['n_samples_train']
         n_samples_valid = config['n_samples_valid']
@@ -221,7 +277,9 @@ if __name__ == "__main__":
             train_start_time = time()
             trainer.train_and_evaluate()
             train_time = time() - train_start_time
-            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s (best epoch: {trainer.best_ep})")
+            n_params = count_parameters(model)
+            params_str = f" | params: {n_params:,}" if n_params else ""
+            print(f"[{dataset_name}] {model_name} trained in {train_time:.2f}s (best epoch: {trainer.best_ep}){params_str}")
 
             # Get model for best epoch
             best_ep = trainer.best_ep
@@ -282,6 +340,24 @@ if __name__ == "__main__":
                 observed = [x / sum(observed_percentages) * 100 for x in observed_percentages]
                 _, p_value = chisquare(f_obs=observed, f_exp=expected)
                 c_calib = p_value
+
+                # Save CrI plot for a random test sample (Figure 2 from paper)
+                try:
+                    if CRI_SAMPLES > n_samples_test:
+                        cri_surv_probs = compute_nondeterministic_survival_curve(
+                            model, X_train, sanitized_x_test,
+                            e_train, t_train, event_times,
+                            n_samples_train, CRI_SAMPLES)
+                    else:
+                        cri_surv_probs = surv_probs
+                    sample_idx = min(42, cri_surv_probs.shape[1] - 1)
+                    cri_path = plot_credible_interval(
+                        event_times, cri_surv_probs,
+                        sanitized_t_test[sample_idx], sanitized_e_test[sample_idx],
+                        model_name, dataset_name, sample_idx, pt.RESULTS_DIR)
+                    print(f"     CrI plot saved ({CRI_SAMPLES} MC samples): {cri_path}")
+                except Exception as e:
+                    print(f"     CrI plot skipped: {e}")
             else:
                 c_calib = 0
             
@@ -301,9 +377,14 @@ if __name__ == "__main__":
                                                                      "INBLL", "CCalib", "ICI", "TrainTime", "TestTime"])
             res_df['ModelName'] = model_name
             res_df['DatasetName'] = dataset_name
+            res_df['NParams'] = n_params if n_params else 0
             test_results = pd.concat([test_results, res_df], axis=0)
 
-            print(f"  -> Inference: {test_time:.2f}s | CI: {ci:.4f} | IBS: {ibs:.4f} | INBLL: {inbll:.4f}")
+            dcal_str = f"{d_calib:.3f}" if d_calib > 0.05 else f"{d_calib:.3f}*"
+            ccal_str = f"{c_calib:.3f}" if model_name in ['vi', 'mcd1', 'mcd2', 'mcd3'] else "-"
+            print(f"  -> Inference: {test_time:.2f}s")
+            print(f"     CI: {ci:.4f} | IBS: {ibs:.4f} | MAE_H: {mae_hinge:.2f} | MAE_PO: {mae_pseudo:.2f}")
+            print(f"     ICI: {ici:.4f} | D-Cal: {dcal_str} | C-Cal: {ccal_str}")
 
             if USE_WANDB:
                 wandb.log({
