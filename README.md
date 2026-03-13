@@ -21,20 +21,27 @@ This fork extends the original codebase with GPU acceleration, modernized depend
 
 **HPC Cluster Support (Digital Alliance of Canada)**
 - SLURM job script (`run_baysurv_job.sh`) with GPU allocation, module loading, and virtualenv setup
+- MIG (Multi-Instance GPU) slices for faster queue times: 1g.10gb, 2g.20gb, 3g.40gb, or full H100
 - Optimized for Compute Canada wheelhouse (`requirements_cc.txt`)
 - Data staging to fast local scratch (`$SLURM_TMPDIR`)
 - Suppressed noisy TF/rpy2/LMOD warnings for clean SLURM logs
 - Unbuffered Python output for real-time progress monitoring
 
 **Full Paper Metrics Output**
-- All metrics from Tables II and III are now printed during training:
-  CI, IBS, MAE_H, MAE_PO, ICI, D-Cal, C-Cal
-- Model parameter counts printed after each model (Table IV)
-- Credible Interval (CrI) plots saved for VI/MCD models (Figure 2 from paper)
-- Results saved to CSV files for post-analysis
+- All metrics from Tables II and III: CI, IBS, MAE_H, MAE_PO, ICI, D-Cal, C-Cal
+- Extended metrics: MSE_Hinge, RMSE_Hinge, X-Cal, AUC@25/50/75, 1-Cal@25/50/75
+- Model parameter counts (NParams) for Table IV
+- Credible Interval (CrI) plots for VI/MCD/BayCox/BayMTLR (Figure 2)
+- C-Cal shows `-` for deterministic models (cox, coxnet, coxboost, rsf, dsm, dcm); only probabilistic models report it
+
+**Training Progress**
+- Single-line ASCII progress bars (`#` and `-`) for BayCox, BayMTLR, DSM, DCM, and BNN models
+- BayCox/BayMTLR: Train Total, KL, nll; Val Total, nll
+- BNN models: Train/Val loss and variance
+- All stdout captured to `results/sota_training_log.txt` and `results/bnn_training_log.txt`
 
 **CLI & Experiment Tracking**
-- Argparse support for selective training: `--datasets`, `--models`, `--epochs`
+- Argparse support: `--datasets`, `--models`, `--epochs`, `--cri-samples`, `--no-early-stop`
 - Optional [Weights & Biases](https://wandb.ai) integration (`--wandb`) with per-epoch loss curves
 - Detailed logging: dataset characteristics, split sizes, training time, metrics, model save paths
 
@@ -96,7 +103,18 @@ The paper evaluates **14 models** split across two training scripts. Without any
 | D-Cal | Distribution calibration (p-value, >0.05 = calibrated) | ↑ higher is better |
 | C-Cal | Coverage calibration (only for VI, MCD, BayCox, BayMTLR) | ↑ higher is better |
 
-D-Cal values marked with `*` in the output indicate the model is NOT D-calibrated (p ≤ 0.05).
+D-Cal values marked with `*` indicate the model is NOT D-calibrated (p ≤ 0.05). C-Cal shows `-` for deterministic models (cox, coxnet, coxboost, rsf, dsm, dcm).
+
+### Extended Metrics
+
+| Metric | Description |
+|--------|-------------|
+| MSE_Hinge, RMSE_Hinge | Squared / root squared error (hinge) |
+| X-Cal | X-calibration score |
+| AUC@25, AUC@50, AUC@75 | Time-dependent AUC at percentiles |
+| 1-Cal@25, 1-Cal@50, 1-Cal@75 | One-calibration at percentiles |
+
+AUC and 1-Cal may show `N/A` when the test set has insufficient class balance at that time point.
 
 ## Quick Start
 
@@ -133,6 +151,16 @@ python train_sota_models.py --datasets METABRIC
 python train_bnn_models.py --datasets METABRIC
 ```
 
+### BNN-Specific Flags
+
+```bash
+# CrI plot: 1000 MC samples (paper default)
+python train_bnn_models.py --cri-samples 1000
+
+# Disable early stopping, run all epochs
+python train_bnn_models.py --no-early-stop --epochs 200
+```
+
 ### With Experiment Tracking
 
 ```bash
@@ -144,10 +172,10 @@ python train_bnn_models.py --wandb --wandb-project my-experiment
 ### HPC Cluster (SLURM)
 
 ```bash
-# Edit run_baysurv_job.sh to select models/datasets, then:
+# Edit run_baysurv_job.sh: GPU block (MIG 1g/2g/3g or full H100), PROJECT_DIR
 sbatch run_baysurv_job.sh
 
-# Monitor progress
+# Monitor progress (tail interprets \r for in-place updates)
 tail -f slurm-*.out
 ```
 
@@ -157,21 +185,31 @@ After training, results are saved to:
 
 | File | Contents |
 |------|----------|
-| `results/sota_results.csv` | All Table II & III metrics for SOTA models |
-| `results/baysurv_test_results.csv` | All Table II & III metrics for BNN models |
-| `results/baysurv_training_results.csv` | Per-epoch training loss & variance curves |
-| `results/*_cri_sample*.pdf` | Credible interval plots for VI/MCD (Figure 2) |
+| `results/sota_results.csv` | Table II & III + extended metrics for SOTA models |
+| `results/baysurv_test_results.csv` | Table II & III + extended metrics for BNN models |
+| `results/baysurv_training_results.csv` | Per-epoch train/valid loss & variance (BNN) |
+| `results/sota_training_log.txt` | Full stdout from SOTA training |
+| `results/bnn_training_log.txt` | Full stdout from BNN training |
+| `results/*_survival_curves.pdf` | Individual survival curves per model |
+| `results/*_brier_curve.pdf` | Time-dependent Brier score BS(t) per model |
+| `results/*_pred_vs_actual.pdf` | Predicted vs actual survival time scatter |
+| `results/*_time_histogram.pdf` | Predicted survival time distribution |
+| `results/*_calibration.pdf` | Calibration curves (all models per dataset) |
+| `results/*_training_curves.pdf` | Train/valid loss curves (BNN only) |
+| `results/*_cri_sample*.pdf` | Credible interval plots (Figure 2, BNN only) |
 | `models/*.joblib` | Saved scikit-survival models |
 | `models/*.pt` | Saved PyTorch models (BayCox, BayMTLR) |
-| `models/*/weights.weights.h5` | Saved TF/Keras models (BNN) |
+| `models/*/` | Saved TF/Keras model checkpoints (BNN) |
 
 ### CSV Column Reference
 
-The results CSV files contain these columns:
+The results CSV files contain:
 
 ```
 CI, IBS, MAEHinge, MAEPseudo, DCalib, KM, INBLL, CCalib, ICI,
-TrainTime, TestTime, ModelName, DatasetName
+MSE_Hinge, RMSE_Hinge, X_Cal, AUC_25, AUC_50, AUC_75,
+One_Cal_25, One_Cal_50, One_Cal_75,
+NParams, TrainTime, TestTime, ModelName, DatasetName
 ```
 
 ### Reading Results
@@ -203,15 +241,18 @@ print(bnn.pivot_table(values='CI', index='ModelName', columns='DatasetName'))
 ├── tools/
 │   ├── sota_builder.py        # SOTA model constructors (pycox wrappers)
 │   ├── baysurv_builder.py     # BNN models + SpectralNorm + RFGP layers
-│   ├── baysurv_trainer.py     # BNN training loop with wandb support
+│   ├── baysurv_trainer.py     # BNN training loop (TF/Keras)
+│   ├── bnn_isd_trainer.py     # BayCox/BayMTLR training loop (PyTorch)
+│   ├── results_generator.py   # Generic evaluation, plots, TeeLogger
 │   ├── evaluator.py           # Survival evaluation metrics
 │   ├── data_loader.py         # Dataset loaders
-│   └── Evaluations/           # Concordance, Brier, calibration modules
+│   └── Evaluations/           # Concordance, Brier, AUC, calibration modules
 ├── utility/
 │   ├── loss.py                # Cox PH loss functions
 │   ├── bnn_isd_models.py      # BayesCox, BayesMTLR architectures
 │   ├── survival.py            # Survival curve computation
 │   ├── training.py            # Data loading, scaling, splitting
+│   ├── plot.py                # Calibration and training curve plotting
 │   └── config.py              # YAML config loader
 ├── tuning/                    # Hyperparameter tuning scripts (wandb sweeps)
 │   ├── tune_sota_models.py    # Tune all SOTA models
