@@ -148,9 +148,9 @@ mkdir -p models results
 #   models/                            - Saved model weights
 
 echo "Starting train_sota_models.py at $(date)"
-python train_sota_models.py --datasets SUPPORT --models dsm dcm baycox baymtlr
+python train_sota_models.py
 
 echo "Starting train_bnn_models.py at $(date)"
-python train_bnn_models.py
+python train_bnn_models.py --datasets SUPPORT --models mcd1 mcd2 mcd3 vi
 
 echo "Job finished on $(date)"
