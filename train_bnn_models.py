@@ -153,7 +153,8 @@ if __name__ == "__main__":
         
         # Load training parameters
         config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
-        optimizer = tf.keras.optimizers.deserialize(config['optimizer'])
+        optimizer_config = config['optimizer']
+        optimizer = tf.keras.optimizers.deserialize(optimizer_config)
         activation_fn = config['activiation_fn']
         layers = config['network_layers']
         l2_reg = config['l2_reg']
@@ -271,6 +272,9 @@ if __name__ == "__main__":
             else:
                 raise ValueError("Model not found")
             
+            # Create a fresh optimizer per model run (Keras 3 tracks variables per optimizer instance)
+            optimizer = tf.keras.optimizers.deserialize(optimizer_config)
+
             # Train model
             trainer = Trainer(model=model, model_name=model_name,
                               train_dataset=train_ds, valid_dataset=valid_ds,
