@@ -122,7 +122,10 @@ def normal_loc(params):
     return tfd.Normal(loc=params[:,0:1], scale=1)
 
 def normal_loc_scale(params):
-    return tfd.Normal(loc=params[:,0:1], scale=1e-3 + tf.math.softplus(0.05 * params[:,1:2]))
+    loc = params[:, 0:1]
+    raw_scale = params[:, 1:2]
+    scale = 1e-3 + tf.keras.ops.softplus(0.05 * raw_scale)
+    return tfd.Normal(loc=loc, scale=scale)
 
 def normal_fs(params):
     return tfd.Normal(loc=params[:,0:1], scale=1)

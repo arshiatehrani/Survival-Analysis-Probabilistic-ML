@@ -31,6 +31,8 @@ class Trainer:
         self.test_loss_metric = tf.keras.metrics.Mean(name="test_loss")
         self.train_loss, self.valid_loss = list(), list()
         self.train_variance, self.valid_variance = list(), list()
+        self.train_total, self.train_nll, self.train_kl = list(), list(), list()
+        self.valid_total, self.valid_nll, self.valid_kl = list(), list(), list()
                 
         self.early_stop = early_stop
         self.patience = patience
@@ -40,16 +42,43 @@ class Trainer:
         
         self.checkpoint = tf.train.Checkpoint(optimizer=self.optimizer, model=self.model)
         self.manager = tf.train.CheckpointManager(self.checkpoint, directory=f"{pt.MODELS_DIR}", max_to_keep=num_epochs)
+
+    def _regularization_term(self):
+        if not self.model.losses:
+            return tf.constant(0.0, dtype=tf.float32)
+        return tf.add_n([tf.cast(loss, tf.float32) for loss in self.model.losses])
+
+    def _predict_logits_and_variance(self, x, training, runs):
+        output = self.model(x, training=training)
+
+        if isinstance(output, (tuple, list)):
+            logits = output[0]
+            variance = tf.constant(0.0, dtype=tf.float32)
+            if len(output) > 1 and tf.is_tensor(output[1]):
+                covmat = output[1]
+                if covmat.shape.rank is not None and covmat.shape.rank >= 2:
+                    variance = tf.reduce_mean(tf.linalg.diag_part(covmat))
+            return logits, variance
+
+        if hasattr(output, "sample"):
+            logits_samples = tf.stack([tf.reshape(output.sample(), (-1,)) for _ in range(runs)])
+            logits_mean = tf.expand_dims(tf.reduce_mean(logits_samples, axis=0), axis=1)
+            variance = tf.reduce_mean(tf.math.reduce_variance(logits_samples, axis=0, keepdims=True))
+            return logits_mean, variance
+
+        return output, tf.constant(0.0, dtype=tf.float32)
         
     def _progress(self, epoch):
         pct = min(100, epoch * 100 // self.num_epochs)
         bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
-        t_loss = self.train_loss[-1] if self.train_loss else 0.0
-        parts = f"Train: loss={t_loss:.4f}"
+        t_total = self.train_total[-1] if self.train_total else 0.0
+        t_kl = self.train_kl[-1] if self.train_kl else 0.0
+        t_nll = self.train_nll[-1] if self.train_nll else 0.0
+        parts = f"Train: Total={t_total:.4f}, KL={t_kl:.4f}, nll={t_nll:.4f}"
         if self.train_variance:
             parts += f" var={self.train_variance[-1]:.4f}"
-        if self.valid_loss:
-            parts += f"; Val: loss={self.valid_loss[-1]:.4f}"
+        if self.valid_total:
+            parts += f"; Val: Total={self.valid_total[-1]:.4f}, KL={self.valid_kl[-1]:.4f}, nll={self.valid_nll[-1]:.4f}"
             if self.valid_variance:
                 parts += f" var={self.valid_variance[-1]:.4f}"
         msg = f"\r  [{bar}] {epoch}/{self.num_epochs} {parts}"
@@ -72,10 +101,22 @@ class Trainer:
             if self.use_wandb:
                 import wandb
                 log_dict = {"epoch": epoch, "train_loss": self.train_loss[-1]}
+                if self.train_total:
+                    log_dict["train_total"] = self.train_total[-1]
+                if self.train_kl:
+                    log_dict["train_kl"] = self.train_kl[-1]
+                if self.train_nll:
+                    log_dict["train_nll"] = self.train_nll[-1]
                 if self.train_variance:
                     log_dict["train_variance"] = self.train_variance[-1]
                 if self.valid_loss:
                     log_dict["valid_loss"] = self.valid_loss[-1]
+                if self.valid_total:
+                    log_dict["valid_total"] = self.valid_total[-1]
+                if self.valid_kl:
+                    log_dict["valid_kl"] = self.valid_kl[-1]
+                if self.valid_nll:
+                    log_dict["valid_nll"] = self.valid_nll[-1]
                 if self.valid_variance:
                     log_dict["valid_variance"] = self.valid_variance[-1]
                 wandb.log(log_dict)
@@ -88,41 +129,30 @@ class Trainer:
 
     def train(self, epoch):
         batch_variances = list()
+        batch_total = list()
+        batch_nll = list()
+        batch_kl = list()
         runs = self.n_samples_train
         for x, y in self.train_ds:
             y_event = tf.expand_dims(y["label_event"], axis=1)
-            n_samples = y_event.shape[0]
             with tf.GradientTape() as tape:
-                if self.model_name == "mlp":
-                    logits = self.model(x, training=True)
-                    batch_variances.append(0)
-                    loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
-                elif self.model_name == "sngp":
-                    logits, covmat = self.model(x, training=True)
-                    batch_variances.append(np.mean(tf.linalg.diag_part(covmat)[:, None]))
-                    loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
-                elif self.model_name == "vi":
-                    logits_dist = self.model(x, training=True)
-                    logits_cpd = tf.stack([tf.reshape(logits_dist.sample(), n_samples) for _ in range(runs)])
-                    batch_variances.append(np.mean(tf.math.reduce_variance(logits_cpd, axis=0, keepdims=True)))
-                    logits_mean = tf.expand_dims(tf.reduce_mean(logits_cpd, axis=0), axis=1)
-                    cox_loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits_mean)
-                    self.train_loss_metric.update_state(cox_loss)
-                    loss = cox_loss + tf.reduce_mean(self.model.losses) # CoxPHLoss + KL-divergence
-                elif self.model_name in ["mcd1", "mcd2", "mcd3"]:
-                    logits_dist = self.model(x, training=True)
-                    logits_cpd = tf.stack([tf.reshape(logits_dist.sample(), n_samples) for _ in range(runs)])
-                    batch_variances.append(np.mean(tf.math.reduce_variance(logits_cpd, axis=0, keepdims=True)))
-                    logits_mean = tf.expand_dims(tf.reduce_mean(logits_cpd, axis=0), axis=1)
-                    loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits_mean)
-                else:
-                    raise NotImplementedError()
+                logits, batch_var = self._predict_logits_and_variance(x, training=True, runs=runs)
+                nll = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
+                kl = self._regularization_term()
+                loss = nll + kl
                 self.train_loss_metric.update_state(loss)
             with tf.name_scope("gradients"):
                 grads = tape.gradient(loss, self.model.trainable_weights)
                 self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
+            batch_variances.append(float(batch_var.numpy()))
+            batch_total.append(float(loss.numpy()))
+            batch_nll.append(float(nll.numpy()))
+            batch_kl.append(float(kl.numpy()))
         epoch_loss = self.train_loss_metric.result()
         self.train_loss.append(float(epoch_loss))
+        self.train_total.append(float(np.mean(batch_total)) if batch_total else 0.0)
+        self.train_nll.append(float(np.mean(batch_nll)) if batch_nll else 0.0)
+        self.train_kl.append(float(np.mean(batch_kl)) if batch_kl else 0.0)
 
         # Track variance
         if len(batch_variances) > 0:
@@ -134,34 +164,25 @@ class Trainer:
         stop_training = False
         runs = self.n_samples_valid
         batch_variances = list()
+        batch_total = list()
+        batch_nll = list()
+        batch_kl = list()
         for x, y in self.valid_ds:
             y_event = tf.expand_dims(y["label_event"], axis=1)
-            n_samples = y_event.shape[0]
-            if self.model_name == "mlp":
-                logits = self.model(x, training=False)
-                batch_variances.append(0) # zero variance for MLP
-                loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
-            elif self.model_name == "sngp":
-                logits, covmat = self.model(x, training=False)
-                batch_variances.append(np.mean(tf.linalg.diag_part(covmat)[:, None]))
-                loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
-            elif self.model_name == "vi":
-                logits_dist = self.model(x, training=False)
-                logits_cpd = tf.stack([tf.reshape(logits_dist.sample(), n_samples) for _ in range(runs)])
-                batch_variances.append(np.mean(tf.math.reduce_variance(logits_cpd, axis=0, keepdims=True)))
-                logits_mean = tf.expand_dims(tf.reduce_mean(logits_cpd, axis=0), axis=1)
-                cox_loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits_mean)
-                self.train_loss_metric.update_state(cox_loss)
-                loss = cox_loss + tf.reduce_mean(self.model.losses) # CoxPHLoss + KL-divergence
-            elif self.model_name in ["mcd1", "mcd2", "mcd3"]:
-                logits_dist = self.model(x, training=False)
-                logits_cpd = tf.stack([tf.reshape(logits_dist.sample(), n_samples) for _ in range(runs)])
-                batch_variances.append(np.mean(tf.math.reduce_variance(logits_cpd, axis=0, keepdims=True)))
-                logits_mean = tf.expand_dims(tf.reduce_mean(logits_cpd, axis=0), axis=1)
-                loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits_mean)
+            logits, batch_var = self._predict_logits_and_variance(x, training=False, runs=runs)
+            nll = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
+            kl = self._regularization_term()
+            loss = nll + kl
             self.valid_loss_metric.update_state(loss)
+            batch_variances.append(float(batch_var.numpy()))
+            batch_total.append(float(loss.numpy()))
+            batch_nll.append(float(nll.numpy()))
+            batch_kl.append(float(kl.numpy()))
         epoch_loss = self.valid_loss_metric.result()
         self.valid_loss.append(float(epoch_loss))
+        self.valid_total.append(float(np.mean(batch_total)) if batch_total else 0.0)
+        self.valid_nll.append(float(np.mean(batch_nll)) if batch_nll else 0.0)
+        self.valid_kl.append(float(np.mean(batch_kl)) if batch_kl else 0.0)
 
         # Track variance
         if len(batch_variances) > 0:
@@ -169,8 +190,9 @@ class Trainer:
 
         # Early stopping
         if self.early_stop:
-            if self.best_valid_nll > epoch_loss:
-                self.best_valid_nll = epoch_loss
+            current_valid_nll = self.valid_nll[-1]
+            if self.best_valid_nll > current_valid_nll:
+                self.best_valid_nll = current_valid_nll
                 self.best_ep = epoch
             if (epoch - self.best_ep) > self.patience:
                 print(f"\n  Early stop at epoch {self.best_ep}, val_loss={float(self.best_valid_nll):.4f}")

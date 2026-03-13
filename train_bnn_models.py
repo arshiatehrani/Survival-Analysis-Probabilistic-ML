@@ -40,6 +40,7 @@ import os
 from tools.results_generator import ResultsGenerator, TeeLogger
 
 import warnings
+import copy
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 np.seterr(divide='ignore')
@@ -153,7 +154,9 @@ if __name__ == "__main__":
         
         # Load training parameters
         config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
-        optimizer_config = config['optimizer']
+        optimizer_config = copy.deepcopy(config['optimizer'])
+        if isinstance(optimizer_config, dict) and isinstance(optimizer_config.get("config"), dict):
+            optimizer_config["config"].pop("decay", None)
         optimizer = tf.keras.optimizers.deserialize(optimizer_config)
         activation_fn = config['activiation_fn']
         layers = config['network_layers']
