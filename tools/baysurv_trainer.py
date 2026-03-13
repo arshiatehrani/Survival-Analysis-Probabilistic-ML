@@ -66,6 +66,16 @@ class Trainer:
             variance = tf.reduce_mean(tf.math.reduce_variance(logits_samples, axis=0, keepdims=True))
             return logits_mean, variance
 
+        if tf.is_tensor(output) and output.shape.rank is not None and output.shape.rank == 2 and output.shape[-1] == 2:
+            loc = output[:, 0:1]
+            raw_scale = output[:, 1:2]
+            scale = 1e-3 + tf.nn.softplus(0.05 * raw_scale)
+            eps = tf.random.normal(shape=(runs, tf.shape(loc)[0], 1), dtype=loc.dtype)
+            logits_samples = loc[None, :, :] + scale[None, :, :] * eps
+            logits_mean = tf.reduce_mean(logits_samples, axis=0)
+            variance = tf.reduce_mean(tf.math.reduce_variance(logits_samples, axis=0, keepdims=True))
+            return logits_mean, variance
+
         return output, tf.constant(0.0, dtype=tf.float32)
         
     def _progress(self, epoch):

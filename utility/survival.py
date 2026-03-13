@@ -405,15 +405,27 @@ def compute_deterministic_survival_curve(model, X_train, X_test, e_train, t_trai
 
 def compute_nondeterministic_survival_curve(model, X_train, X_test, e_train, t_train,
                                             event_times, n_samples_train, n_samples_test):
+    def _to_logits(pred):
+        arr = np.asarray(pred)
+        if arr.ndim == 2 and arr.shape[1] == 2:
+            loc = arr[:, 0]
+            raw_scale = arr[:, 1]
+            scale = 1e-3 + np.log1p(np.exp(0.05 * raw_scale))
+            return np.random.normal(loc=loc, scale=scale)
+        if arr.ndim == 2 and arr.shape[1] == 1:
+            return arr[:, 0]
+        return np.reshape(arr, len(arr))
+
     train_cpd = np.zeros((n_samples_train, len(X_train)))
     for i in range(0, n_samples_train):
-        train_logits = model.predict(X_train, verbose=False)
-        train_cpd[i,:] = np.reshape(train_logits, len(X_train))
+        train_pred = model.predict(X_train, verbose=False)
+        train_cpd[i,:] = _to_logits(train_pred)
     breslow = BreslowEstimator().fit(np.mean(train_cpd, axis=0), e_train, t_train)
     breslow_surv_times = np.zeros((n_samples_test, len(X_test), len(event_times)))
     for i in range(0, n_samples_test):
-        test_logits = model.predict(X_test, verbose=False)
-        surv_fn = breslow.get_survival_function(np.reshape(test_logits, len(X_test)))
+        test_pred = model.predict(X_test, verbose=False)
+        test_logits = _to_logits(test_pred)
+        surv_fn = breslow.get_survival_function(test_logits)
         breslow_surv_times[i] = np.row_stack([fn(event_times) for fn in surv_fn])
     return breslow_surv_times
 
