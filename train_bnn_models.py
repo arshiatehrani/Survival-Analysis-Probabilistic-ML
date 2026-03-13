@@ -1,8 +1,11 @@
+import atexit, gc
 import scipy.integrate
 if not hasattr(scipy.integrate, 'simps'):
     scipy.integrate.simps = scipy.integrate.simpson
 
 import tensorflow as tf
+
+atexit.register(gc.collect)
 import numpy as np
 import pandas as pd
 import random
@@ -330,6 +333,10 @@ if __name__ == "__main__":
             path = weights_dir / "weights.weights.h5"
             model.save_weights(path)
             print(f"  -> Model saved: {path}")
+
+            # Clean up checkpoint references to avoid TF shutdown errors
+            del trainer.checkpoint, trainer.manager
+            del trainer
 
             # Save results
             training_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_training_results.csv"), index=False)
