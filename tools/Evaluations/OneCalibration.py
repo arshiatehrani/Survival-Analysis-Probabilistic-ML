@@ -113,13 +113,16 @@ def one_calibration(
             mean_prob = np.mean(binned_predictions[b][filter_idx])
             event_count = sum(binned_event_time[b][filter_idx] < target_time)
             event_probability = event_count / bin_size
-            hl_statistics += (event_count - bin_size * mean_prob) ** 2 / (
-                    bin_size * mean_prob * (1 - mean_prob))
+            denom = bin_size * mean_prob * (1 - mean_prob)
+            if denom > 0:
+                hl_statistics += (event_count - bin_size * mean_prob) ** 2 / denom
         elif method == "DN":
             mean_prob = np.mean(binned_predictions[b])
             km_model = KaplanMeier(binned_event_time[b], binned_event_indicator[b])
             event_probability = 1 - km_model.predict(target_time)
-            hl_statistics += (bin_size * event_probability - bin_size * mean_prob) ** 2 / (bin_size * mean_prob * (1 - mean_prob))
+            denom = bin_size * mean_prob * (1 - mean_prob)
+            if denom > 0:
+                hl_statistics += (bin_size * event_probability - bin_size * mean_prob) ** 2 / denom
         else:
             error = "Please enter one of 'Uncensored','DN' for method."
             raise TypeError(error)

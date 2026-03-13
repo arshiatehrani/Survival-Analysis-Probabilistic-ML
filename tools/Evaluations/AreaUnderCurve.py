@@ -33,6 +33,10 @@ def auc(
     # get the binary status of the test data, given the target time
     binary_status = (event_times > target_time).astype(int)
 
+    # roc_auc_score requires both classes to be present; return nan if single-class
+    if len(np.unique(binary_status)) < 2:
+        return np.nan
+
     # computing the AUC, given the predicted probabilities and the binary status
     auc = roc_auc_score(binary_status, predict_probs)
     return auc
