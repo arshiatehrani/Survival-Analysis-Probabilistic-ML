@@ -2,6 +2,12 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+# TFP DenseFlipout requires Keras 2 (tf_keras); Keras 3 KerasTensor lacks .shape.rank
+try:
+    import tf_keras
+except ImportError:
+    tf_keras = tf.keras  # fallback if tf-keras not installed
+
 
 class SpectralNormalization(tf.keras.layers.Wrapper):
     """Keras 3 compatible spectral normalization wrapper."""
@@ -160,9 +166,10 @@ def make_mlp_model(input_shape, output_dim, layers, activation_fn, dropout_rate,
     return model
 
 def make_vi_model(n_train_samples, input_shape, output_dim, layers, activation_fn, dropout_rate, regularization_pen):
+    """VI model uses tf_keras (Keras 2) so TFP DenseFlipout receives compatible tensors."""
     kernel_divergence_fn = lambda q, p, _: tfp.distributions.kl_divergence(q, p) / (n_train_samples * 1.0)
     bias_divergence_fn = lambda q, p, _: tfp.distributions.kl_divergence(q, p) / (n_train_samples * 1.0)
-    inputs = tf.keras.layers.Input(shape=input_shape)
+    inputs = tf_keras.layers.Input(shape=input_shape)
     for i, units in enumerate(layers):
         if i == 0:
             if regularization_pen is not None:
@@ -170,40 +177,40 @@ def make_vi_model(n_train_samples, input_shape, output_dim, layers, activation_f
                                                 bias_prior_fn=tfp.layers.default_multivariate_normal_fn,
                                                 kernel_divergence_fn=kernel_divergence_fn,
                                                 bias_divergence_fn=bias_divergence_fn,activation=activation_fn,
-                                                activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(inputs)
+                                                activity_regularizer=tf_keras.regularizers.L2(regularization_pen))(inputs)
             else:
                 hidden = tfp.layers.DenseFlipout(units,bias_posterior_fn=tfp.layers.util.default_mean_field_normal_fn(),
                                 bias_prior_fn=tfp.layers.default_multivariate_normal_fn,
                                 kernel_divergence_fn=kernel_divergence_fn,
                                 bias_divergence_fn=bias_divergence_fn,activation=activation_fn)(inputs)
-            hidden = tf.keras.layers.BatchNormalization()(hidden)
+            hidden = tf_keras.layers.BatchNormalization()(hidden)
             if dropout_rate is not None:
-                hidden = tf.keras.layers.Dropout(dropout_rate)(hidden)
+                hidden = tf_keras.layers.Dropout(dropout_rate)(hidden)
         else:
             if regularization_pen is not None:
                 hidden = tfp.layers.DenseFlipout(units,bias_posterior_fn=tfp.layers.util.default_mean_field_normal_fn(),
                                                 bias_prior_fn=tfp.layers.default_multivariate_normal_fn,
                                                 kernel_divergence_fn=kernel_divergence_fn,
                                                 bias_divergence_fn=bias_divergence_fn,activation=activation_fn,
-                                                activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(hidden)
+                                                activity_regularizer=tf_keras.regularizers.L2(regularization_pen))(hidden)
             else:
                 hidden = tfp.layers.DenseFlipout(units,bias_posterior_fn=tfp.layers.util.default_mean_field_normal_fn(),
                                 bias_prior_fn=tfp.layers.default_multivariate_normal_fn,
                                 kernel_divergence_fn=kernel_divergence_fn,
                                 bias_divergence_fn=bias_divergence_fn,activation=activation_fn)(hidden)
-            hidden = tf.keras.layers.BatchNormalization()(hidden)
+            hidden = tf_keras.layers.BatchNormalization()(hidden)
             if dropout_rate is not None:
-                hidden = tf.keras.layers.Dropout(dropout_rate)(hidden)
+                hidden = tf_keras.layers.Dropout(dropout_rate)(hidden)
                 
     if output_dim == 2: # If 2, output Gaussian params [loc, raw_scale].
         params = tfp.layers.DenseFlipout(output_dim,bias_posterior_fn=tfp.layers.util.default_mean_field_normal_fn(),
                                          bias_prior_fn=tfp.layers.default_multivariate_normal_fn,
                                          kernel_divergence_fn=kernel_divergence_fn,
                                          bias_divergence_fn=bias_divergence_fn)(hidden)
-        model = tf.keras.Model(inputs=inputs, outputs=params)
+        model = tf_keras.Model(inputs=inputs, outputs=params)
     else: # model only epistemic uncertain.
-        output = tf.keras.layers.Dense(output_dim, activation="linear")(hidden)
-        model = tf.keras.Model(inputs=inputs, outputs=output)
+        output = tf_keras.layers.Dense(output_dim, activation="linear")(hidden)
+        model = tf_keras.Model(inputs=inputs, outputs=output)
     return model
 
 def make_mcd_model(input_shape, output_dim, layers,
