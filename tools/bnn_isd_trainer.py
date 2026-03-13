@@ -16,7 +16,7 @@ from typing import List, Tuple, Optional, Union
 import pandas as pd
 from torch.utils.data import DataLoader, TensorDataset
 from datetime import datetime
-from tqdm import trange
+import sys
 from pycox.evaluation import EvalSurv
 
 class dotdict(dict):
@@ -57,7 +57,13 @@ def train_bnn_model(
     best_val_nll = np.inf
     best_ep = -1
 
-    pbar = trange(config.num_epochs, disable=not config.verbose)
+    def _progress(epoch, total, train_loss, val_loss, val_nll):
+        pct = epoch * 100 // total
+        bar = f"{'█' * (pct // 5)}{'░' * (20 - pct // 5)}"
+        msg = (f"\r  [{bar}] {epoch}/{total} "
+               f"loss={train_loss:.4f} val={val_loss:.4f} val_nll={val_nll:.4f}")
+        sys.stdout.write(msg)
+        sys.stdout.flush()
 
     start_time = datetime.now()
     if isinstance(model, BayesEleCox) or isinstance(model, BayesLinCox):
@@ -71,7 +77,7 @@ def train_bnn_model(
         train_loader = DataLoader(TensorDataset(x_train, t_train, e_train), batch_size=train_size, shuffle=True)
         model.config.batch_size = train_size
 
-        for i in pbar:
+        for i in range(config.num_epochs):
             total_loss = 0
             total_log_likelihood = 0
             total_kl_divergence = 0
@@ -88,25 +94,21 @@ def train_bnn_model(
                 total_kl_divergence += log_variational_posterior.item() - log_prior.item()
 
             val_loss, _, _, val_log_likelihood = model.sample_elbo(x_val, t_val, e_val, dataset_size=val_size)
-            pbar.set_description(f"[epoch {i + 1: 4}/{config.num_epochs}]")
-            pbar.set_postfix_str(f"Train: Total = {total_loss:.4f}, "
-                                 f"KL = {total_kl_divergence:.4f}, "
-                                 f"nll = {total_log_likelihood:.4f}; "
-                                 f"Val: Total = {val_loss.item():.4f}, "
-                                 f"nll = {val_log_likelihood.item():.4f}; ")
+            if config.verbose:
+                _progress(i + 1, config.num_epochs, total_loss, val_loss.item(), val_log_likelihood.item())
             if config.early_stop:
                 if best_val_nll > val_loss:
                     best_val_nll = val_loss
                     best_ep = i
                 if (i - best_ep) > config.patience:
-                    print(f"Validation loss converges at {best_ep}-th epoch.")
+                    print(f"\n  Early stop at epoch {best_ep + 1}, val_loss={float(best_val_nll):.4f}")
                     break
     elif isinstance(model, BayesEleMtlr):
         x, y = reformat_survival(data_train, time_bins)
         x_val, y_val = reformat_survival(data_val, time_bins)
         x_val, y_val = x_val.to(device), y_val.to(device)
         train_loader = DataLoader(TensorDataset(x, y), batch_size=config.batch_size, shuffle=True)
-        for i in pbar:
+        for i in range(config.num_epochs):
             total_loss = 0
             total_log_likelihood = 0
             total_kl_divergence = 0
@@ -126,25 +128,23 @@ def train_bnn_model(
             val_loss, _, _, val_log_likelihood = model.sample_elbo(x_val, y_val, dataset_size=val_size)
             val_loss /= val_size
             val_log_likelihood /= val_size
-            pbar.set_description(f"[epoch {i + 1: 4}/{config.num_epochs}]")
-            pbar.set_postfix_str(f"Train: Total = {total_loss:.4f}, "
-                                 f"KL = {total_kl_divergence:.4f}, "
-                                 f"nll = {total_log_likelihood:.4f}; "
-                                 f"Val: Total = {val_loss.item():.4f}, "
-                                 f"nll = {val_log_likelihood.item():.4f}; ")
+            if config.verbose:
+                _progress(i + 1, config.num_epochs, total_loss, val_loss.item(), val_log_likelihood.item())
             if config.early_stop:
                 if best_val_nll > val_loss:
                     best_val_nll = val_loss
                     best_ep = i
                 if (i - best_ep) > config.patience:
-                    print(f"Validation loss converges at {best_ep}-th epoch.")
-                    break            
+                    print(f"\n  Early stop at epoch {best_ep + 1}, val_loss={float(best_val_nll):.4f}")
+                    break
     
     else:
         raise TypeError("Model type cannot be identified.")
+    if config.verbose:
+        print()  # newline after progress bar
     end_time = datetime.now()
     training_time = end_time - start_time
-    print(f"Training time: {training_time.total_seconds()}")
+    print(f"  Training time: {training_time.total_seconds():.1f}s")
     # model.eval()
     if isinstance(model, BayesEleCox) or isinstance(model, BayesLinCox):
         model.calculate_baseline_survival(x_train.to(device), t_train.to(device), e_train.to(device))

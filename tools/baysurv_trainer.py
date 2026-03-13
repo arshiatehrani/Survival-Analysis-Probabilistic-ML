@@ -1,3 +1,4 @@
+import sys
 import tensorflow as tf
 import numpy as np
 import paths as pt
@@ -40,6 +41,17 @@ class Trainer:
         self.checkpoint = tf.train.Checkpoint(optimizer=self.optimizer, model=self.model)
         self.manager = tf.train.CheckpointManager(self.checkpoint, directory=f"{pt.MODELS_DIR}", max_to_keep=num_epochs)
         
+    def _progress(self, epoch):
+        pct = epoch * 100 // self.num_epochs
+        bar = f"{'█' * (pct // 5)}{'░' * (20 - pct // 5)}"
+        t_loss = self.train_loss[-1] if self.train_loss else 0.0
+        parts = f"loss={t_loss:.4f}"
+        if self.valid_loss:
+            parts += f" val={self.valid_loss[-1]:.4f}"
+        msg = f"\r  [{bar}] {epoch}/{self.num_epochs} {parts}"
+        sys.stdout.write(msg)
+        sys.stdout.flush()
+
     def train_and_evaluate(self):
         stop_training = False
         for epoch in range(1, self.num_epochs+1):
@@ -50,6 +62,8 @@ class Trainer:
                 stop_training = self.validate(epoch)
             if self.test_ds is not None:
                 self.test()
+
+            self._progress(epoch)
 
             if self.use_wandb:
                 import wandb
@@ -66,6 +80,7 @@ class Trainer:
                 self.cleanup()
                 break
             self.cleanup()
+        print()  # newline after progress bar
 
     def train(self, epoch):
         batch_variances = list()
@@ -104,9 +119,7 @@ class Trainer:
                 self.optimizer.apply_gradients(zip(grads, self.model.trainable_weights))
         epoch_loss = self.train_loss_metric.result()
         self.train_loss.append(float(epoch_loss))
-        
-        print(f"Epoch loss: {epoch_loss}")
-                
+
         # Track variance
         if len(batch_variances) > 0:
             self.train_variance.append(float(np.mean(batch_variances)))
@@ -152,12 +165,11 @@ class Trainer:
 
         # Early stopping
         if self.early_stop:
-            print(f"{self.model_name} - {epoch}/{self.num_epochs} - {epoch_loss} - {self.best_valid_nll}")
             if self.best_valid_nll > epoch_loss:
                 self.best_valid_nll = epoch_loss
                 self.best_ep = epoch
             if (epoch - self.best_ep) > self.patience:
-                print(f"Validation loss converges at {self.best_ep}th epoch.")
+                print(f"\n  Early stop at epoch {self.best_ep}, val_loss={float(self.best_valid_nll):.4f}")
                 stop_training = True
             else:
                 stop_training = False
