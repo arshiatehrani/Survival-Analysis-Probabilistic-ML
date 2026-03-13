@@ -35,7 +35,7 @@ This fork extends the original codebase with GPU acceleration, modernized depend
 - C-Cal shows `-` for deterministic models (cox, coxnet, coxboost, rsf, dsm, dcm); only probabilistic models report it
 
 **Training Progress**
-- Single-line ASCII progress bars (`#` and `-`) for BayCox, BayMTLR, DSM, DCM, and BNN models
+- Single-line ASCII progress bars (`#` and `-`) for BayCox, BayMTLR, and BNN models
 - BayCox/BayMTLR: Train Total, KL, nll; Val Total, nll
 - BNN models: Train/Val loss and variance
 - All stdout captured to `results/sota_training_log.txt` and `results/bnn_training_log.txt`
