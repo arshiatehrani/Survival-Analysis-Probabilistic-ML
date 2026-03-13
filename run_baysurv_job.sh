@@ -147,8 +147,8 @@ mkdir -p models results
 #   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2, BNN only)
 #   models/                            - Saved model weights
 
-echo "Starting train_sota_models.py at $(date)"
-python train_sota_models.py
+# echo "Starting train_sota_models.py at $(date)"
+# python train_sota_models.py
 
 echo "Starting train_bnn_models.py at $(date)"
 python train_bnn_models.py --datasets SUPPORT --models mcd1 mcd2 mcd3 vi
