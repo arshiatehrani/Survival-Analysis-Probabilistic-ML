@@ -2,12 +2,22 @@
 #SBATCH --job-name=elec888_train
 #SBATCH --time=0-06:00:00
 #SBATCH --account=def-bakhshai
-#SBATCH --mem=32G
-#SBATCH --gpus-per-node=h100:1
-#SBATCH --cpus-per-task=8
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
 #SBATCH --mail-type=ALL
+#
+# --- GPU config: uncomment ONE block below ---
+#
+# [ACTIVE] MIG slice (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
+#SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=64G
+#
+# [ALTERNATIVE] Full H100 (80GB VRAM) -- for larger/novel models later
+# Uncomment these 3 lines AND comment the 3 MIG lines above to switch.
+##SBATCH --gpus=h100:1
+##SBATCH --cpus-per-task=12
+##SBATCH --mem=128G
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export TF_NUM_INTRAOP_THREADS=$SLURM_CPUS_PER_TASK
