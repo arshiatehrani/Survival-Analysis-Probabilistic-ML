@@ -23,7 +23,8 @@ from utility.loss import CoxPHLoss, CoxPHLossGaussian
 from pathlib import Path
 import paths as pt
 from utility.survival import (calculate_event_times, calculate_percentiles, convert_to_structured,
-                              compute_deterministic_survival_curve, compute_nondeterministic_survival_curve)
+                              compute_deterministic_survival_curve, compute_nondeterministic_survival_curve,
+                              compute_nondeterministic_survival_curve_mean)
 from utility.training import make_stratified_split
 from time import time
 from tools.evaluator import LifelinesEvaluator
@@ -123,6 +124,10 @@ if __name__ == "__main__":
                         help="Number of training epochs (default: 100)")
     parser.add_argument("--cri-samples", type=int, default=1000,
                         help="Number of MC samples for CrI visualization (paper uses 1000, default: 1000)")
+    parser.add_argument("--max-full-mc-samples", type=int, default=32,
+                        help="Max MC samples for full tensor operations (C-cal/CrI) to avoid OOM (default: 32)")
+    parser.add_argument("--max-cri-samples", type=int, default=128,
+                        help="Max MC samples for CrI plotting to avoid OOM (default: 128)")
     parser.add_argument("--no-early-stop", action="store_true",
                         help="Disable early stopping (overrides config files)")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
@@ -133,6 +138,8 @@ if __name__ == "__main__":
     MODELS = args.models
     N_EPOCHS = args.epochs
     CRI_SAMPLES = args.cri_samples
+    MAX_FULL_MC_SAMPLES = args.max_full_mc_samples
+    MAX_CRI_SAMPLES = args.max_cri_samples
     DISABLE_EARLY_STOP = args.no_early_stop
     USE_WANDB = args.wandb
 
@@ -148,6 +155,8 @@ if __name__ == "__main__":
     print(f"Epochs: {N_EPOCHS}")
     print(f"Early stopping: {'disabled (--no-early-stop)' if DISABLE_EARLY_STOP else 'per config'}")
     print(f"CrI samples: {CRI_SAMPLES}")
+    print(f"Max full MC samples (OOM guard): {MAX_FULL_MC_SAMPLES}")
+    print(f"Max CrI samples (OOM guard): {MAX_CRI_SAMPLES}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset, train models and plot scores
     for dataset_name in DATASETS:
@@ -225,6 +234,10 @@ if __name__ == "__main__":
 
         for i, model_name in enumerate(MODELS):
             print(f"\n[{dataset_name}] ({i+1}/{len(MODELS)}) Training {model_name} ...", flush=True)
+
+            # Aggressive cleanup before each model to avoid OOM on small GPU (e.g. MIG 1g.10gb)
+            tf.keras.backend.clear_session()
+            gc.collect()
 
             if USE_WANDB:
                 wandb.init(
@@ -306,9 +319,10 @@ if __name__ == "__main__":
                 surv_preds = compute_deterministic_survival_curve(model, X_train, X_test,
                                                                   e_train, t_train, event_times, model_name)
             else:
-                surv_preds = np.mean(compute_nondeterministic_survival_curve(model, np.array(X_train), np.array(X_test),
-                                                                             e_train, t_train, event_times,
-                                                                             n_samples_train, n_samples_test), axis=0)
+                surv_preds = compute_nondeterministic_survival_curve_mean(
+                    model, np.array(X_train), np.array(X_test),
+                    e_train, t_train, event_times,
+                    n_samples_train, n_samples_test)
             test_time = time() - test_start_time
             
             # Make dataframe
@@ -334,18 +348,25 @@ if __name__ == "__main__":
             inbll = ev.integrated_nbll(event_times)
             ci = ev.concordance_td()
             
-            # Calculate C-cal for BNN models
+            # Calculate C-cal for BNN models (single MC pass for C-cal + CrI plot when both needed)
             if model_name in ["vi", "mcd1", "mcd2", "mcd3"]:
+                calib_samples = min(n_samples_test, MAX_FULL_MC_SAMPLES)
+                cri_samples = min(CRI_SAMPLES, MAX_CRI_SAMPLES)
+                n_use = max(calib_samples, cri_samples)
+                if calib_samples < n_samples_test:
+                    print(f"     MC samples capped for calibration: {calib_samples}/{n_samples_test} (OOM guard)")
+                if cri_samples < CRI_SAMPLES:
+                    print(f"     CrI samples capped: {cri_samples}/{CRI_SAMPLES} (OOM guard)")
                 surv_probs = compute_nondeterministic_survival_curve(model, X_train, sanitized_x_test,
                                                                      e_train, t_train, event_times,
-                                                                     n_samples_train, n_samples_test)
+                                                                     n_samples_train, n_use)
                 credible_region_sizes = np.arange(0.1, 1, 0.1)
                 surv_times = torch.from_numpy(surv_probs)
                 coverage_stats = {}
                 for percentage in credible_region_sizes:
-                    drop_num = math.floor(0.5 * n_samples_test * (1 - percentage))
+                    drop_num = math.floor(0.5 * n_use * (1 - percentage))
                     lower_outputs = torch.kthvalue(surv_times, k=1 + drop_num, dim=0)[0]
-                    upper_outputs = torch.kthvalue(surv_times, k=n_samples_test - drop_num, dim=0)[0]
+                    upper_outputs = torch.kthvalue(surv_times, k=n_use - drop_num, dim=0)[0]
                     coverage_stats[percentage] = coverage(event_times, upper_outputs, lower_outputs,
                                                           sanitized_t_test, sanitized_e_test)
                 expected_percentages = coverage_stats.keys()
@@ -357,13 +378,7 @@ if __name__ == "__main__":
 
                 # Save CrI plot for a random test sample (Figure 2 from paper)
                 try:
-                    if CRI_SAMPLES > n_samples_test:
-                        cri_surv_probs = compute_nondeterministic_survival_curve(
-                            model, X_train, sanitized_x_test,
-                            e_train, t_train, event_times,
-                            n_samples_train, CRI_SAMPLES)
-                    else:
-                        cri_surv_probs = surv_probs
+                    cri_surv_probs = surv_probs[:cri_samples] if cri_samples <= n_use else surv_probs
                     sample_idx = min(42, cri_surv_probs.shape[1] - 1)
                     cri_path = plot_credible_interval(
                         event_times, cri_surv_probs,
@@ -446,9 +461,12 @@ if __name__ == "__main__":
             model.save_weights(path)
             print(f"  -> Model saved: {path}")
 
-            # Clean up checkpoint references to avoid TF shutdown errors
+            # Clean up to free GPU memory before next model (critical for MIG 1g.10gb)
             del trainer.checkpoint, trainer.manager
             del trainer
+            del model
+            tf.keras.backend.clear_session()
+            gc.collect()
 
             # Save results
             training_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_training_results.csv"), index=False)

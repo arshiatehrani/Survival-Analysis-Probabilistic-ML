@@ -58,7 +58,7 @@ def count_parameters(model, model_name):
         if model_name in ["baycox", "baymtlr"]:
             return sum(p.numel() for p in model.parameters() if p.requires_grad)
         elif model_name in ["dsm", "dcm"]:
-            return sum(p.numel() for p in model.torch_model.parameters() if p.requires_grad)
+            return sum(p.numel() for p in model.model.net.parameters() if p.requires_grad)
         elif hasattr(model, 'count_params'):
             return model.count_params()
         elif hasattr(model, 'coef_'):
@@ -152,9 +152,6 @@ if __name__ == "__main__":
 
         for i, model_name in enumerate(MODELS):
             print(f"\n[{dataset_name}] ({i+1}/{len(MODELS)}) Training {model_name} ...", flush=True)
-            # Get batch size for MLP to use for loss calculation
-            mlp_config = load_config(pt.MLP_CONFIGS_DIR, f"{dataset_name.lower()}.yaml")
-            batch_size = mlp_config['batch_size']
 
             # Load model-specific config
             config_dirs = {
@@ -257,12 +254,12 @@ if __name__ == "__main__":
             elif model_name == "baycox":
                 baycox_test_data = torch.tensor(data_test.drop(["time", "event"], axis=1).values,
                                                 dtype=torch.float, device=device)
-                survival_outputs, _, ensemble_outputs = make_ensemble_cox_prediction(model, baycox_test_data, config)
+                survival_outputs, _, ensemble_outputs_full = make_ensemble_cox_prediction(model, baycox_test_data, config)
                 surv_preds = survival_outputs.cpu().numpy()
             elif model_name == "baymtlr":
                 baycox_test_data = torch.tensor(data_test.drop(["time", "event"], axis=1).values,
                                                 dtype=torch.float, device=device)
-                survival_outputs, _, ensemble_outputs = make_ensemble_mtlr_prediction(model, baycox_test_data, mtlr_times, config)
+                survival_outputs, _, ensemble_outputs_full = make_ensemble_mtlr_prediction(model, baycox_test_data, mtlr_times, config)
                 surv_preds = survival_outputs.cpu().numpy()
             else:
                 surv_preds = compute_deterministic_survival_curve(model, X_train_arr, X_test_arr,
@@ -302,13 +299,11 @@ if __name__ == "__main__":
             inbll = ev.integrated_nbll(event_times)
             ci = ev.concordance_td()
             
-            # Calculate C-cal for BNN models
+            # Calculate C-cal for Bayesian models (reuse ensemble from surv_preds to avoid 2nd inference)
             if model_name in ['baycox', 'baymtlr']:
-                baycox_test_data = torch.tensor(sanitized_x_test, dtype=torch.float, device=device)
-                if model_name == "baycox":
-                    _, _, ensemble_outputs = make_ensemble_cox_prediction(model, baycox_test_data, config)
-                else:
-                    _, _, ensemble_outputs = make_ensemble_mtlr_prediction(model, baycox_test_data, mtlr_times, config)
+                kept_mask = np.ones(len(surv_preds), dtype=bool)
+                kept_mask[list(bad_idx)] = False
+                ensemble_outputs = ensemble_outputs_full[:, kept_mask, :]
                 n_samples_test = config['n_samples_test']
                 credible_region_sizes = np.arange(0.1, 1, 0.1)
                 coverage_stats = {}
