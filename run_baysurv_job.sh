@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-03:00:00
+#SBATCH --time=0-01:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
@@ -21,7 +21,7 @@
 # [ACTIVE] MIG 1g.10gb (1/8 H100, 10GB VRAM) -- fastest queue, tight on VRAM
 #SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
 #SBATCH --cpus-per-task=6
-#SBATCH --mem=64G
+#SBATCH --mem=16G
 #
 # [ALT] Full H100 (80GB VRAM) -- for larger/novel models later
 ##SBATCH --gpus=h100:1
