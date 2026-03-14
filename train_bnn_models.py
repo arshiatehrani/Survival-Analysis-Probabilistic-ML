@@ -42,6 +42,9 @@ from tools.results_generator import ResultsGenerator, TeeLogger
 import warnings
 import copy
 warnings.simplefilter(action='ignore', category=FutureWarning)
+# TFP DenseFlipout uses deprecated add_variable; suppress until TFP updates
+warnings.filterwarnings('ignore', message='.*add_variable.*deprecated.*')
+warnings.filterwarnings('ignore', message='.*RandomNormal is unseeded.*')
 
 np.seterr(divide='ignore')
 np.seterr(invalid='ignore')
@@ -131,6 +134,12 @@ if __name__ == "__main__":
                         help="Disable early stopping (overrides config files)")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
     parser.add_argument("--wandb-project", default="baysurv-bnn", help="wandb project name")
+    parser.add_argument("--tune", action="store_true",
+                        help="Run Bayesian optimization per dataset before training (requires WANDB_API_KEY)")
+    parser.add_argument("--no-tune", action="store_true",
+                        help="Use pre-tuned configs from configs/mlp/ (default)")
+    parser.add_argument("--tune-iterations", type=int, default=10,
+                        help="Bayesian optimization iterations when --tune (paper: 10)")
     args = parser.parse_args()
 
     DATASETS = args.datasets
@@ -141,8 +150,9 @@ if __name__ == "__main__":
     MAX_CRI_SAMPLES = args.max_cri_samples
     DISABLE_EARLY_STOP = args.no_early_stop
     USE_WANDB = args.wandb
+    TUNE_FIRST = args.tune and not args.no_tune
 
-    if USE_WANDB:
+    if USE_WANDB or TUNE_FIRST:
         import wandb
         os.environ["WANDB_SILENT"] = "true"
 
@@ -157,6 +167,25 @@ if __name__ == "__main__":
     print(f"Max full MC samples (OOM guard): {MAX_FULL_MC_SAMPLES}")
     print(f"Max CrI samples (OOM guard): {MAX_CRI_SAMPLES}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
+    print(f"Hyperparameters: {'Bayesian optimization (--tune)' if TUNE_FIRST else 'pre-tuned configs (--no-tune)'}")
+
+    # Run Bayesian optimization per dataset if --tune
+    if TUNE_FIRST:
+        import subprocess
+        import sys
+        for ds in DATASETS:
+            print(f"\n[Bayesian optimization] Tuning {ds} ({args.tune_iterations} iterations)...")
+            ret = subprocess.run([
+                sys.executable, "tuning/tune_mlp_model.py",
+                "--dataset", ds,
+                "--iterations", str(args.tune_iterations),
+                "--save-config",
+            ], cwd=str(pt.ROOT_DIR))
+            if ret.returncode != 0:
+                print(f"[Bayesian optimization] Tuning failed for {ds}; exiting.")
+                sys.exit(ret.returncode)
+        print("\n[Bayesian optimization] Tuning complete. Starting training...\n")
+
     # For each dataset, train models and plot scores
     for dataset_name in DATASETS:
         
@@ -290,7 +319,7 @@ if __name__ == "__main__":
             # Create a fresh optimizer per model run (Keras 3 tracks variables per optimizer instance)
             optimizer = tf.keras.optimizers.deserialize(optimizer_config)
 
-            # Train model
+            # Train model (paper: same hyperparams for all BNN models)
             trainer = Trainer(model=model, model_name=model_name,
                               train_dataset=train_ds, valid_dataset=valid_ds,
                               test_dataset=None, optimizer=optimizer,

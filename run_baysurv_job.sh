@@ -151,7 +151,22 @@ mkdir -p models results
 # echo "Starting train_sota_models.py at $(date)"
 # python train_sota_models.py
 
-echo "Starting train_bnn_models.py at $(date)"
-python train_bnn_models.py --datasets SUPPORT --models vi
+############################
+# TUNE_MODE: 0 = use pre-tuned configs (configs/mlp/*.yaml) [default]
+#            1 = run Bayesian optimization first, then train
+#
+# For TUNE_MODE=1: set WANDB_API_KEY above (https://wandb.ai/authorize)
+# To use: TUNE_MODE=1 sbatch run_baysurv_job.sh
+############################
+TUNE_MODE=${TUNE_MODE:-0}
+echo "TUNE_MODE=$TUNE_MODE (0=pre-tuned, 1=Bayesian optimization)"
+
+if [ "$TUNE_MODE" = "1" ]; then
+  echo "Starting Bayesian optimization + training at $(date)"
+  python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10
+else
+  echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
+  python train_bnn_models.py --datasets SUPPORT --models vi
+fi
 
 echo "Job finished on $(date)"

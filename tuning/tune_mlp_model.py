@@ -1,22 +1,21 @@
 """
 tune_mlp_model.py
 ====================================
-Tuning script for mlp model
---dataset: Dataset name, one of "SUPPORT", "NHANES", "GBSG2", "WHAS500", "FLCHAIN", "METABRIC"
+Bayesian optimization for MLP/BNN hyperparameters (paper: 10 iterations per dataset).
+Uses wandb sweeps (method: bayes) to maximize validation concordance index.
+Config is shared by MLP, VI, MCD×3, SNGP for fair comparison.
 """
 
 import numpy as np
 import os
 import tensorflow as tf
+import yaml
+from pathlib import Path
 from tools.baysurv_builder import make_mlp_model
 from utility.risk import InputFunction
 from utility.loss import CoxPHLoss
 from tools import baysurv_trainer, data_loader
-import os
 from utility.tuning import get_mlp_sweep_config
-import argparse
-import numpy as np
-import os
 import argparse
 from tools import data_loader
 import pandas as pd
@@ -25,8 +24,9 @@ from utility.survival import calculate_event_times, compute_deterministic_surviv
 import config as cfg
 from utility.training import make_stratified_split
 from utility.survival import convert_to_structured
-from utility.training import make_stratified_split, scale_data
+from utility.training import scale_data
 from pycox.evaluation import EvalSurv
+import paths as pt
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -34,24 +34,73 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 os.environ["WANDB_SILENT"] = "true"
 import wandb
 
-N_RUNS = 100
 PROJECT_NAME = "baysurv_bo_mlp"
+
+# Track best config across sweep runs (used when --save-config)
+best_ci = -1.0
+best_config = None
+
+
+def _config_to_yaml_format(c):
+    """Convert sweep config dict to YAML format expected by train_bnn_models."""
+    wd = c.get('weight_decay')
+    return {
+        "network_layers": c.get('network_layers', [32]),
+        "activiation_fn": c.get('activation_fn', 'relu'),
+        "dropout_rate": c.get('dropout', 0.25),
+        "l2_reg": c.get('l2_reg', 0.001),
+        "batch_size": c.get('batch_size', 32),
+        "early_stop": c.get('early_stop', True),
+        "patience": c.get('patience', 5),
+        "n_samples_train": c.get('n_samples_train', 10),
+        "n_samples_valid": c.get('n_samples_valid', 10),
+        "n_samples_test": c.get('n_samples_test', 100),
+        "optimizer": {
+            "class_name": "Adam",
+            "config": {
+                "learning_rate": float(c.get('learning_rate', 0.001)),
+                "decay": float(wd) if wd is not None else 0.001,
+            }
+        }
+    }
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str,
-                        required=True,
-                        default=None)
+    parser.add_argument('--dataset', type=str, required=True,
+                        help="Dataset name (SUPPORT, SEER, METABRIC, MIMIC, etc.)")
+    parser.add_argument('--iterations', type=int, default=10,
+                        help="Bayesian optimization iterations (paper: 10)")
+    parser.add_argument('--save-config', action='store_true',
+                        help="Save best config to configs/mlp/{dataset}.yaml for training")
     args = parser.parse_args()
-    global dataset_name
-    if args.dataset:
-        dataset_name = args.dataset
-    
+    global dataset_name, best_ci, best_config
+    dataset_name = args.dataset
+    best_ci = -1.0
+    best_config = None
+
     sweep_config = get_mlp_sweep_config()
     sweep_id = wandb.sweep(sweep_config, project=PROJECT_NAME)
-    wandb.agent(sweep_id, train_model, count=N_RUNS)
+    wandb.agent(sweep_id, train_model, count=args.iterations)
+
+    if args.save_config and best_config is not None:
+        out_path = Path(pt.MLP_CONFIGS_DIR) / f"{dataset_name.lower()}.yaml"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        yaml_cfg = _config_to_yaml_format(best_config)
+        with open(out_path, 'w') as f:
+            yaml.dump(yaml_cfg, f, default_flow_style=False, sort_keys=False)
+        print(f"\n[Bayesian optimization] Best config saved to {out_path}")
+        print("[Bayesian optimization] Hyperparameters chosen:")
+        for k, v in yaml_cfg.items():
+            if k != "optimizer":
+                print(f"  {k}: {v}")
+            else:
+                print(f"  optimizer: {v}")
+    elif args.save_config and best_config is None:
+        print("\n[Bayesian optimization] No valid runs; config not saved.")
 
 def train_model():
+    global best_ci, best_config
     config_defaults = cfg.MLP_DEFAULT_PARAMS
 
     # Initialize a new wandb run
@@ -152,11 +201,16 @@ def train_model():
     try:
         ev = EvalSurv(surv_preds.T, t_valid, e_valid, censor_surv="km")
         ci = ev.concordance_td()
-    except:
+    except Exception:
         ci = np.nan
 
     # Log to wandb
     wandb.log({"val_ci": ci})
+
+    # Track best config for --save-config
+    if not np.isnan(ci) and ci > best_ci:
+        best_ci = float(ci)
+        best_config = dict(wandb.config)
 
 if __name__ == "__main__":
     main()

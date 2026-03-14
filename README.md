@@ -267,17 +267,36 @@ print(bnn.pivot_table(values='CI', index='ModelName', columns='DatasetName'))
 
 ## Hyperparameter Tuning
 
-The configs in `configs/` contain pre-tuned hyperparameters from the paper (Appendix B, Table V). To re-tune:
+Per the paper (Appendix B): *"We use Bayesian optimization [25] to tune hyperparameters over ten iterations on the validation set, adopting the hyperparameters leading to the highest concordance index (CItd)."* Hyperparameters are tuned **per dataset**.
+
+### Two modes
+
+| Mode | Description |
+|------|--------------|
+| **Pre-tuned (default)** | Use configs in `configs/mlp/*.yaml` (paper Table V). No tuning step. |
+| **Bayesian optimization** | Run tuning first, save best config, then train. Requires `WANDB_API_KEY`. |
+
+### Automated workflow (Bayesian optimization)
 
 ```bash
-# Tune SOTA models (uses wandb sweeps, 10 iterations)
-python tuning/tune_sota_models.py --dataset SUPPORT --model cox
+# Single command: tune then train (saves best config automatically)
+python train_bnn_models.py --datasets SUPPORT --models vi --tune
 
-# Tune BNN/MLP hyperparameters (100 iterations)
-python tuning/tune_mlp_model.py --dataset SUPPORT
+# Or via job script:
+TUNE_MODE=1 sbatch run_baysurv_job.sh
 ```
 
-Per the paper, the MLP config is shared across all 6 BNN models (MLP, VI, MCD×3, SNGP) for fair comparison.
+### Manual tuning (optional)
+
+```bash
+# Tune and save config for one dataset
+python tuning/tune_mlp_model.py --dataset SUPPORT --iterations 10 --save-config
+
+# Then train (uses the saved config)
+python train_bnn_models.py --datasets SUPPORT --models vi
+```
+
+The MLP config is shared across all 6 BNN models (MLP, VI, MCD×3, SNGP) for fair comparison.
 
 ## Citation
 
