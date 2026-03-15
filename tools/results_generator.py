@@ -138,6 +138,15 @@ class ResultsGenerator:
 
         event_times_pct = calculate_percentiles(times_for_pct)
         for q, t0 in event_times_pct.items():
+            # [DEBUG] Check for NaN in predict_probs before AUC/1-Cal
+            try:
+                predict_probs = evaluator.predict_probability_from_curve(t0)
+                nan_count = int(np.isnan(predict_probs).sum())
+                if nan_count > 0:
+                    print(f"     [DEBUG] @{q} t0={t0}: {nan_count}/{len(predict_probs)} NaN in predict_probs")
+            except Exception as ex:
+                print(f"     [DEBUG] @{q} t0={t0}: predict_probability_from_curve failed: {ex}")
+
             for prefix, fn, fallback_fn in [
                 (f"AUC_{q}", lambda _t=t0: float(evaluator.auc(_t)),
                  lambda: float(evaluator.auc(median_time))),

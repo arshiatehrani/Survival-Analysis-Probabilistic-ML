@@ -161,7 +161,15 @@ mkdir -p models results
 TUNE_MODE=${TUNE_MODE:-0}
 echo "TUNE_MODE=$TUNE_MODE (0=pre-tuned, 1=Bayesian optimization)"
 
-if [ "$TUNE_MODE" = "1" ]; then
+# DEBUG_MODE: run fastest model (MLP) on SUPPORT for quick AUC/1-Cal debug (~5 min)
+# To run normal VI after debug: DEBUG_MODE=0 sbatch run_baysurv_job.sh
+DEBUG_MODE=${DEBUG_MODE:-1}
+echo "DEBUG_MODE=$DEBUG_MODE (1=MLP/SUPPORT for debug, 0=VI/SUPPORT normal)"
+
+if [ "$DEBUG_MODE" = "1" ]; then
+  echo "Starting train_bnn_models.py (DEBUG: mlp on SUPPORT) at $(date)"
+  python train_bnn_models.py --datasets SUPPORT --models mlp
+elif [ "$TUNE_MODE" = "1" ]; then
   echo "Starting Bayesian optimization + training at $(date)"
   python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10
 else
