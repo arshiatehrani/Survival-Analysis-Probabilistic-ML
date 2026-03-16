@@ -37,6 +37,11 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', message='.*add_variable.*deprecated.*')
 warnings.filterwarnings('ignore', message='.*RandomNormal is unseeded.*')
 
+# Monkey-patch: scipy >= 1.14 removed simps, but pycox still uses it
+import scipy.integrate
+if not hasattr(scipy.integrate, 'simps'):
+    scipy.integrate.simps = scipy.integrate.simpson
+
 import paths as pt
 from utility.config import load_config
 from utility.training import get_data_loader, make_stratified_split, scale_data, split_time_event
