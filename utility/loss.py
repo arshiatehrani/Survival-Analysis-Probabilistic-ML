@@ -308,3 +308,250 @@ def cox_nll(
             neg_log_loss += C1/2 * torch.norm(v, p=2)
 
     return neg_log_loss
+
+
+# ---------------------------------------------------------------------------
+# Calibration-Aware Loss Functions (TensorFlow)
+# ---------------------------------------------------------------------------
+
+def breslow_survival_tf(logits, event, time, time_grid):
+    """Differentiable Breslow estimator: logits → S(t|x) at each grid point.
+
+    Parameters
+    ----------
+    logits : tf.Tensor, shape (batch, 1)
+        Predicted log-hazard ratio from the model.
+    event : tf.Tensor, shape (batch, 1) or (batch,)
+        Binary event indicator (1 = event, 0 = censored).
+    time : tf.Tensor, shape (batch,)
+        Observed time for each sample.
+    time_grid : tf.Tensor, shape (K,)
+        Time points at which to evaluate the survival function.
+
+    Returns
+    -------
+    surv : tf.Tensor, shape (batch, K)
+        Predicted S(t_k | x_i) for each sample i and grid point k.
+    """
+    logits_flat = tf.squeeze(logits, axis=-1)          # (batch,)
+    event_flat = tf.cast(tf.reshape(event, [-1]), tf.float32)
+    time_flat = tf.cast(tf.reshape(time, [-1]), tf.float32)
+
+    # Sort by ascending time
+    order = tf.argsort(time_flat)
+    sorted_time = tf.gather(time_flat, order)
+    sorted_event = tf.gather(event_flat, order)
+    sorted_logits = tf.gather(logits_flat, order)
+
+    # Risk scores
+    risk = tf.exp(sorted_logits)                       # (batch,)
+
+    # Risk-set sums (cumulative from the end = sum of risk[j] for j>=i)
+    risk_rev = tf.reverse(risk, axis=[0])
+    risk_set_sum = tf.reverse(tf.cumsum(risk_rev), axis=[0])  # (batch,)
+    risk_set_sum = tf.maximum(risk_set_sum, 1e-10)
+
+    # Baseline hazard increments: d_i / R_i only for events
+    hazard_inc = sorted_event / risk_set_sum           # (batch,)
+
+    # Cumulative baseline hazard at each sorted observation
+    cum_hazard = tf.cumsum(hazard_inc)                 # (batch,)
+
+    # Interpolate: for each t in time_grid find H_0(t)
+    grid_idx = tf.searchsorted(sorted_time, time_grid, side='right')
+    grid_idx = tf.clip_by_value(grid_idx, 1, tf.shape(cum_hazard)[0]) - 1
+    H0_grid = tf.gather(cum_hazard, grid_idx)          # (K,)
+
+    # Survival: S(t_k | x_i) = exp( -H_0(t_k) * exp(logit_i) )
+    all_risk = tf.exp(logits_flat)                     # (batch,)
+    surv = tf.exp(
+        -tf.expand_dims(all_risk, 1) * tf.expand_dims(H0_grid, 0)
+    )                                                  # (batch, K)
+
+    return surv
+
+
+class CRPSLoss(tf.keras.losses.Loss):
+    """Right-censored CRPS as a differentiable training loss.
+
+    CRPS(S, t_obs, δ) = ∫₀^{t_obs} (1-S(u))² du + δ · ∫_{t_obs}^∞ S(u)² du
+
+    Uses trapezoidal integration over a fixed time grid.
+    y_true must be [event, riskset, time] (3-element list).
+    """
+
+    def __init__(self, time_grid_np, **kwargs):
+        """
+        Parameters
+        ----------
+        time_grid_np : np.ndarray, shape (K,)
+            Sorted array of time points covering the observation range.
+            Typically np.linspace(0, t_max, 100) from training data.
+        """
+        super().__init__(**kwargs)
+        self.time_grid = tf.constant(time_grid_np, dtype=tf.float32)
+        # Precompute Δt for trapezoidal rule
+        dt = np.diff(time_grid_np, prepend=0.0)
+        self.dt = tf.constant(dt, dtype=tf.float32)  # (K,)
+
+    def call(self, y_true, y_pred):
+        event = y_true[0]          # (batch, 1) or (batch,)
+        time = y_true[2]           # (batch,)
+        event_f = tf.cast(tf.reshape(event, [-1]), tf.float32)   # (batch,)
+        time_f = tf.cast(tf.reshape(time, [-1]), tf.float32)
+
+        # Compute survival curves at grid points
+        surv = breslow_survival_tf(y_pred, event, time, self.time_grid)  # (batch, K)
+
+        # Masks: before_obs[i,k] = 1(grid_k < t_obs_i)
+        #        after_obs[i,k]  = 1(grid_k >= t_obs_i)
+        before_obs = tf.cast(
+            tf.expand_dims(self.time_grid, 0) < tf.expand_dims(time_f, 1), tf.float32
+        )  # (batch, K)
+        after_obs = 1.0 - before_obs
+
+        # CRPS integrand
+        # Before t_obs: (1 - S(t))²
+        term1 = (1.0 - surv) ** 2 * before_obs * self.dt        # (batch, K)
+        # After t_obs (uncensored only): S(t)²
+        term2 = surv ** 2 * after_obs * self.dt                 # (batch, K)
+        term2 = term2 * tf.expand_dims(event_f, 1)              # mask by event
+
+        crps_per_sample = tf.reduce_sum(term1 + term2, axis=1)  # (batch,)
+        return tf.reduce_mean(crps_per_sample)
+
+
+class BrierScoreLoss(tf.keras.losses.Loss):
+    """IPCW-weighted Integrated Brier Score as a differentiable training loss.
+
+    BS(t) = (1/N) Σ [ 1(T≤t,δ=1)·S(t|x)²/G(T) + 1(T>t)·(1-S(t|x))²/G(t) ]
+    IBS = mean over time grid
+
+    y_true must be [event, riskset, time] (3-element list).
+    """
+
+    def __init__(self, time_grid_np, km_times_np, km_surv_np, **kwargs):
+        """
+        Parameters
+        ----------
+        time_grid_np : np.ndarray, shape (K,)
+            Sorted time points at which to evaluate the Brier Score.
+        km_times_np : np.ndarray
+            Unique times of the KM estimate for the **censoring** distribution.
+        km_surv_np : np.ndarray
+            Corresponding KM survival probabilities G(t) = P(C > t).
+        """
+        super().__init__(**kwargs)
+        self.time_grid = tf.constant(time_grid_np, dtype=tf.float32)
+        self.km_times = tf.constant(km_times_np, dtype=tf.float32)
+        self.km_surv = tf.constant(km_surv_np, dtype=tf.float32)
+
+    def _G(self, t):
+        """Censoring survival probability G(t) = P(C > t)."""
+        idx = tf.searchsorted(self.km_times, t, side='right')
+        idx = tf.clip_by_value(idx, 1, tf.shape(self.km_surv)[0]) - 1
+        return tf.maximum(tf.gather(self.km_surv, idx), 1e-8)
+
+    def call(self, y_true, y_pred):
+        event = y_true[0]
+        time = y_true[2]
+        event_f = tf.cast(tf.reshape(event, [-1]), tf.float32)
+        time_f = tf.cast(tf.reshape(time, [-1]), tf.float32)
+
+        surv = breslow_survival_tf(y_pred, event, time, self.time_grid)  # (batch, K)
+
+        # G(T_i) for each sample
+        G_Ti = self._G(time_f)                       # (batch,)
+        # G(t_k) for each grid point
+        G_tk = self._G(self.time_grid)                # (K,)
+
+        # Masks
+        died_before = tf.cast(
+            tf.expand_dims(time_f, 1) <= tf.expand_dims(self.time_grid, 0), tf.float32
+        )  # (batch, K): 1 if T_i <= t_k
+        alive = 1.0 - died_before
+
+        # Case 1: died before t_k (uncensored only)
+        case1 = (
+            tf.expand_dims(event_f, 1) * died_before * surv ** 2
+            / tf.expand_dims(G_Ti, 1)
+        )  # (batch, K)
+
+        # Case 2: alive at t_k
+        case2 = alive * (1.0 - surv) ** 2 / tf.expand_dims(G_tk, 0)
+
+        bs_grid = tf.reduce_mean(case1 + case2, axis=0)  # (K,)
+        return tf.reduce_mean(bs_grid)
+
+
+class MarginalCalibrationLoss(tf.keras.losses.Loss):
+    """Marginal calibration: penalizes divergence of batch-mean survival
+    from the Kaplan-Meier estimate.
+
+    L = (1/K) Σ_k (S_model_avg(t_k) - S_KM(t_k))²
+
+    y_true must be [event, riskset, time] (3-element list).
+    """
+
+    def __init__(self, time_grid_np, km_surv_at_grid_np, **kwargs):
+        """
+        Parameters
+        ----------
+        time_grid_np : np.ndarray, shape (K,)
+            Time points for the grid.
+        km_surv_at_grid_np : np.ndarray, shape (K,)
+            KM survival probabilities at each grid point.
+        """
+        super().__init__(**kwargs)
+        self.time_grid = tf.constant(time_grid_np, dtype=tf.float32)
+        self.km_surv = tf.constant(km_surv_at_grid_np, dtype=tf.float32)
+
+    def call(self, y_true, y_pred):
+        event = y_true[0]
+        time = y_true[2]
+
+        surv = breslow_survival_tf(y_pred, event, time, self.time_grid)  # (batch, K)
+        surv_mean = tf.reduce_mean(surv, axis=0)  # (K,)
+
+        return tf.reduce_mean((surv_mean - self.km_surv) ** 2)
+
+
+class JointCoxCalibrationLoss(tf.keras.losses.Loss):
+    """Combined loss: (1-λ)·CoxPH + λ·CalibrationLoss [+ μ·MarginalLoss].
+
+    y_true must be [event, riskset, time] (3-element list).
+    """
+
+    def __init__(self, calibration_loss, lam=0.3, marginal_loss=None, mu=0.0,
+                 **kwargs):
+        """
+        Parameters
+        ----------
+        calibration_loss : CRPSLoss or BrierScoreLoss
+            The calibration loss component.
+        lam : float
+            Weight for calibration loss (0 = pure Cox, 1 = pure calibration).
+        marginal_loss : MarginalCalibrationLoss or None
+            Optional marginal calibration regularizer.
+        mu : float
+            Weight for marginal loss.
+        """
+        super().__init__(**kwargs)
+        self.cox_loss = CoxPHLoss()
+        self.cal_loss = calibration_loss
+        self.lam = lam
+        self.marginal_loss = marginal_loss
+        self.mu = mu
+
+    def call(self, y_true, y_pred):
+        # Cox uses only [event, riskset]
+        cox = self.cox_loss(y_true=[y_true[0], y_true[1]], y_pred=y_pred)
+        cal = self.cal_loss(y_true=y_true, y_pred=y_pred)
+
+        total = (1.0 - self.lam - self.mu) * tf.reduce_mean(cox) + self.lam * cal
+
+        if self.marginal_loss is not None and self.mu > 0:
+            marg = self.marginal_loss(y_true=y_true, y_pred=y_pred)
+            total = total + self.mu * marg
+
+        return total

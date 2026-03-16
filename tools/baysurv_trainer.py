@@ -3,6 +3,7 @@ import tensorflow as tf
 import numpy as np
 import paths as pt
 from utility.loss import CoxPHLoss, CoxPHLossGaussian
+from utility.loss import CRPSLoss, BrierScoreLoss, JointCoxCalibrationLoss, MarginalCalibrationLoss
 
 class Trainer:
     def __init__(self, model, model_name, train_dataset, valid_dataset,
@@ -44,6 +45,12 @@ class Trainer:
         ckpt_dir = str(checkpoint_dir) if checkpoint_dir else f"{pt.MODELS_DIR}"
         self.checkpoint = tf.train.Checkpoint(optimizer=self.optimizer, model=self.model)
         self.manager = tf.train.CheckpointManager(self.checkpoint, directory=ckpt_dir, max_to_keep=num_epochs)
+
+        # Calibration-aware losses need label_time in y_true
+        self._loss_needs_time = isinstance(
+            self.loss_fn,
+            (CRPSLoss, BrierScoreLoss, JointCoxCalibrationLoss, MarginalCalibrationLoss)
+        )
 
     def _regularization_term(self):
         if not self.model.losses:
@@ -156,7 +163,10 @@ class Trainer:
             y_event = tf.expand_dims(y["label_event"], axis=1)
             with tf.GradientTape() as tape:
                 logits, batch_var = self._predict_logits_and_variance(x, training=True, runs=runs)
-                nll = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
+                if self._loss_needs_time:
+                    nll = self.loss_fn(y_true=[y_event, y["label_riskset"], y["label_time"]], y_pred=logits)
+                else:
+                    nll = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
                 kl = self._regularization_term()
                 loss = nll + kl
                 self.train_loss_metric.update_state(loss)
@@ -189,7 +199,10 @@ class Trainer:
         for x, y in self.valid_ds:
             y_event = tf.expand_dims(y["label_event"], axis=1)
             logits, batch_var = self._predict_logits_and_variance(x, training=False, runs=runs)
-            nll = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
+            if self._loss_needs_time:
+                nll = self.loss_fn(y_true=[y_event, y["label_riskset"], y["label_time"]], y_pred=logits)
+            else:
+                nll = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)
             kl = self._regularization_term()
             loss = nll + kl
             self.valid_loss_metric.update_state(loss)
