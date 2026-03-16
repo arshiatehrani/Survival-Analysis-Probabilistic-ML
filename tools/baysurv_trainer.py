@@ -101,14 +101,12 @@ class Trainer:
             if self.valid_variance:
                 parts += f" var={self.valid_variance[-1]:.4f}"
         msg = f"  [{bar}] {epoch}/{self.num_epochs} {parts}"
-        # When stdout is a TTY (terminal), use \r for in-place updates. When redirected (e.g. SLURM log)
-        # or wrapped (e.g. TeeLogger), \r doesn't work. Print every 10 epochs to avoid 100+ lines.
+        # TTY: in-place \r updates. Non-TTY (Slurm/TeeLogger): one line per epoch.
         is_tty = getattr(sys.stdout, "isatty", lambda: False)()
         if is_tty:
             sys.stdout.write("\r" + msg)
         else:
-            if epoch % 10 == 0 or epoch == self.num_epochs:
-                print(msg)
+            print(msg)
         sys.stdout.flush()
 
     def train_and_evaluate(self):
