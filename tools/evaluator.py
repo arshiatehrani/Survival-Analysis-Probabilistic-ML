@@ -150,8 +150,8 @@ class SurvivalEvaluator:
         :return: array-like, shape = (n_samples, )
             Predicted probabilities of event at the target time point(s).
         """
-        if isinstance(target_time, (float, int)):
-            target_time = target_time * np.ones_like(self.event_times)
+        if np.isscalar(target_time):
+            target_time = float(target_time) * np.ones_like(self.event_times)
         elif isinstance(target_time, np.ndarray):
             assert target_time.ndim == 1, "Target time must be a 1D array"
             assert target_time.shape[0] == self.predicted_curves.shape[0], "Target time must have the same length as " \

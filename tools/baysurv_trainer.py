@@ -91,8 +91,14 @@ class Trainer:
             parts += f"; Val: Total={self.valid_total[-1]:.4f}, KL={self.valid_kl[-1]:.4f}, nll={self.valid_nll[-1]:.4f}"
             if self.valid_variance:
                 parts += f" var={self.valid_variance[-1]:.4f}"
-        msg = f"\r  [{bar}] {epoch}/{self.num_epochs} {parts}"
-        sys.stdout.write(msg)
+        msg = f"  [{bar}] {epoch}/{self.num_epochs} {parts}"
+        # When stdout is a TTY (terminal), use \r for in-place updates. When redirected (e.g. SLURM log),
+        # \r doesn't work and each write becomes a new line. Print every 10 epochs to avoid 100+ lines.
+        if sys.stdout.isatty():
+            sys.stdout.write("\r" + msg)
+        else:
+            if epoch % 10 == 0 or epoch == self.num_epochs:
+                print(msg)
         sys.stdout.flush()
 
     def train_and_evaluate(self):
