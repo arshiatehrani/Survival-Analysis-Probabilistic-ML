@@ -33,6 +33,7 @@ class Trainer:
         self.train_variance, self.valid_variance = list(), list()
         self.train_total, self.train_nll, self.train_kl = list(), list(), list()
         self.valid_total, self.valid_nll, self.valid_kl = list(), list(), list()
+        self.test_variance, self.test_loss_scores = list(), list()
                 
         self.early_stop = early_stop
         self.patience = patience
@@ -223,11 +224,11 @@ class Trainer:
         batch_variances = list()
         for x, y in self.test_ds:
             y_event = tf.expand_dims(y["label_event"], axis=1)
-            if self.model_name in ["MLP-ALEA", "VI", "VI-EPI", "MCD-EPI", "MCD"]:
+            if self.model_name in ["MLP-ALEA", "VI", "VI-EPI", "MCD-EPI", "MCD", "vi", "mcd1", "mcd2", "mcd3"]:
                 runs = self.n_samples_test
                 logits_cpd = np.zeros((runs, len(x)), dtype=np.float32)
                 for i in range(0, runs):
-                    if self.model_name in ["MLP-ALEA", "VI", "MCD"]:
+                    if self.model_name in ["MLP-ALEA", "VI", "MCD", "vi", "mcd1", "mcd2", "mcd3"]:
                         logits_cpd[i,:] = np.reshape(self.model(x, training=False).sample(), len(x))
                     else:
                         logits_cpd[i,:] = np.reshape(self.model(x, training=False), len(x))
@@ -240,7 +241,7 @@ class Trainer:
                 else:
                     loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits_cpd)
                 self.test_loss_metric.update_state(loss)
-            elif self.model_name == "SNGP":
+            elif self.model_name in ["SNGP", "sngp"]:
                 logits, covmat = self.model(x, training=False)
                 batch_variances.append(np.mean(tf.linalg.diag_part(covmat)[:, None]))
                 loss = self.loss_fn(y_true=[y_event, y["label_riskset"]], y_pred=logits)

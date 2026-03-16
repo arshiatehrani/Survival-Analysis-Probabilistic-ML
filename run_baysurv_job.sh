@@ -161,10 +161,8 @@ mkdir -p models results
 TUNE_MODE=${TUNE_MODE:-0}
 echo "TUNE_MODE=$TUNE_MODE (0=pre-tuned, 1=Bayesian optimization)"
 
-# DEBUG_MODE: run fastest model (MLP) on SUPPORT for quick AUC/1-Cal debug (~5 min)
-# To run normal VI: DEBUG_MODE=0 sbatch run_baysurv_job.sh
-# For debug: sbatch run_baysurv_job.sh  (or DEBUG_MODE=1 sbatch run_baysurv_job.sh)
-DEBUG_MODE=${DEBUG_MODE:-1}
+# DEBUG_MODE: 0=normal (VI), 1=fast debug (MLP on SUPPORT). For debug: DEBUG_MODE=1 sbatch run_baysurv_job.sh
+DEBUG_MODE=${DEBUG_MODE:-0}
 echo "DEBUG_MODE=$DEBUG_MODE | TUNE_MODE=$TUNE_MODE"
 
 if [ "$DEBUG_MODE" = "1" ]; then

@@ -5,7 +5,15 @@ if not hasattr(scipy.integrate, 'simps'):
 
 import tensorflow as tf
 
-atexit.register(gc.collect)
+def _cleanup_tf():
+    """Clear TF session before exit to avoid _CheckpointRestoreCoordinatorDeleter TypeError."""
+    try:
+        tf.keras.backend.clear_session()
+    except Exception:
+        pass
+    gc.collect()
+
+atexit.register(_cleanup_tf)
 import numpy as np
 import pandas as pd
 import random
