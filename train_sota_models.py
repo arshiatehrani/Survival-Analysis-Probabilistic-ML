@@ -35,6 +35,7 @@ from tools.Evaluations.util import make_monotonic, check_monotonicity
 import argparse
 import os
 from tools.results_generator import ResultsGenerator, TeeLogger
+from utility.plot import plot_credible_interval
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -84,11 +85,20 @@ if __name__ == "__main__":
                         choices=ALL_MODELS, help="Models to train (default: all)")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
     parser.add_argument("--wandb-project", default="baysurv-sota", help="wandb project name")
+    parser.add_argument("--cri-plot-samples", type=str, default=None,
+                        help="Comma-separated sample indices for CrI plots (e.g. 0,42,100). Default: 42")
+    parser.add_argument("--cri-plot-all", action="store_true",
+                        help="Plot CrI for all test samples (many PDFs)")
+    parser.add_argument("--cri-plot-random", action="store_true",
+                        help="Use random sample when not specifying --cri-plot-samples or --cri-plot-all")
     args = parser.parse_args()
 
     DATASETS = args.datasets
     MODELS = args.models
     USE_WANDB = args.wandb
+    CRI_PLOT_SAMPLES = args.cri_plot_samples
+    CRI_PLOT_ALL = args.cri_plot_all
+    CRI_PLOT_RANDOM = args.cri_plot_random
 
     if USE_WANDB:
         import wandb
@@ -100,6 +110,8 @@ if __name__ == "__main__":
     print(f"Torch device: {device}")
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
+    cri_plot_desc = "all" if CRI_PLOT_ALL else (CRI_PLOT_SAMPLES or ("random" if CRI_PLOT_RANDOM else "42"))
+    print(f"CrI plot samples: {cri_plot_desc}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     # For each dataset
     for dataset_name in DATASETS:
@@ -328,6 +340,33 @@ if __name__ == "__main__":
                 observed = [x / sum(observed_percentages) * 100 for x in observed_percentages]
                 _, p_value = chisquare(f_obs=observed, f_exp=expected)
                 c_calib = p_value
+
+                # Save CrI plot(s) (Figure 2 from paper). Generic for baycox, baymtlr.
+                try:
+                    cri_ensemble = ensemble_outputs.cpu().numpy()  # (n_mc, n_test, n_times)
+                    n_test = cri_ensemble.shape[1]
+                    times_for_cri = sanitized_surv_preds.columns.values.astype(np.float64)
+                    if CRI_PLOT_ALL:
+                        sample_indices = list(range(n_test))
+                    elif CRI_PLOT_SAMPLES:
+                        sample_indices = [int(x.strip()) for x in CRI_PLOT_SAMPLES.split(",")]
+                    else:
+                        idx = random.randint(0, n_test - 1) if CRI_PLOT_RANDOM else min(42, n_test - 1)
+                        sample_indices = [idx]
+                    sample_indices = [i for i in sample_indices if 0 <= i < n_test]
+                    if not sample_indices:
+                        sample_indices = [0]
+                    saved_paths = []
+                    for sample_idx in sample_indices:
+                        path = plot_credible_interval(
+                            times_for_cri, cri_ensemble,
+                            sanitized_t_test[sample_idx], sanitized_e_test[sample_idx],
+                            model_name, dataset_name, sample_idx, pt.RESULTS_DIR)
+                        saved_paths.append(path)
+                    n_mc = cri_ensemble.shape[0]
+                    print(f"     CrI plot(s) saved ({len(saved_paths)} file(s), {n_mc} MC samples): {saved_paths[0]}" + (f" ... +{len(saved_paths)-1} more" if len(saved_paths) > 1 else ""))
+                except Exception as e:
+                    print(f"     CrI plot skipped: {e}")
             else:
                 c_calib = 0
         

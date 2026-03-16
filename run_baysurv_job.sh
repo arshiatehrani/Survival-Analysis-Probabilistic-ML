@@ -126,6 +126,9 @@ mkdir -p models results
 # Examples - BNN-specific flags:
 #   python train_bnn_models.py --cri-samples 1000      # MC samples for CrI plot (paper=1000, default=1000)
 #   python train_bnn_models.py --cri-samples 100       # Faster but lower quality CrI plots
+#   python train_bnn_models.py --cri-plot-samples 0,42,100   # CrI plots for specific samples (VI/MCD/BayCox/BayMTLR)
+#   python train_bnn_models.py --cri-plot-all          # CrI plots for all test samples (many PDFs)
+#   python train_bnn_models.py --cri-plot-random      # Use random sample instead of 42 (when single sample)
 #   python train_bnn_models.py --no-early-stop         # Run all epochs (ignore config early_stop)
 #   python train_bnn_models.py --no-early-stop --epochs 200
 #
@@ -145,7 +148,7 @@ mkdir -p models results
 #   results/*_time_histogram.pdf       - Predicted survival time distribution
 #   results/*_calibration.pdf          - Calibration curves (all models per dataset)
 #   results/*_training_curves.pdf      - Train/valid loss curves per dataset (BNN only)
-#   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2, BNN only)
+#   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2, VI/MCD/BayCox/BayMTLR)
 #   models/                            - Saved model weights
 
 # echo "Starting train_sota_models.py at $(date)"

@@ -46,6 +46,7 @@ from tools.Evaluations.util import make_monotonic, check_monotonicity
 import argparse
 import os
 from tools.results_generator import ResultsGenerator, TeeLogger
+from utility.plot import plot_credible_interval
 
 import warnings
 import copy
@@ -72,47 +73,6 @@ def count_parameters(model):
     except Exception:
         return None
 
-def plot_credible_interval(event_times, surv_ensemble, actual_time, actual_event,
-                           model_name, dataset_name, sample_idx, save_dir):
-    """Plot individual survival curve with 90% credible interval (Figure 2 from paper)."""
-    surv_sample = surv_ensemble[:, sample_idx, :]  # (n_samples, n_times)
-    mean_surv = np.mean(surv_sample, axis=0)
-    lower = np.percentile(surv_sample, 5, axis=0)
-    upper = np.percentile(surv_sample, 95, axis=0)
-    median_time_idx = np.searchsorted(-mean_surv, -0.5)
-    median_time = event_times[min(median_time_idx, len(event_times) - 1)]
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
-    ax1.plot(event_times, mean_surv, 'b-', linewidth=2, label='Mean S(t)')
-    ax1.fill_between(event_times, lower, upper, alpha=0.3, color='blue', label='90% CrI')
-    ax1.axhline(y=0.5, color='gray', linestyle='--', alpha=0.5)
-    ax1.axvline(x=median_time, color='red', linestyle='--', alpha=0.7, label=f'Median: {median_time:.0f}')
-    if actual_event == 1:
-        ax1.axvline(x=actual_time, color='green', linestyle='-', alpha=0.7, label=f'Actual: {actual_time:.0f}')
-    ax1.set_xlabel('Time')
-    ax1.set_ylabel('Survival Probability')
-    ax1.set_ylim(0, 1.05)
-    ax1.set_title(f'{model_name.upper()} - Individual Survival Function')
-    ax1.legend(fontsize=8)
-
-    median_times = []
-    for s in range(surv_sample.shape[0]):
-        idx = np.searchsorted(-surv_sample[s], -0.5)
-        median_times.append(event_times[min(idx, len(event_times) - 1)])
-    ax2.hist(median_times, bins=30, color='steelblue', edgecolor='white', alpha=0.8)
-    ax2.axvline(x=np.mean(median_times), color='red', linestyle='--', label=f'Mean: {np.mean(median_times):.0f}')
-    ax2.set_xlabel('Predicted Survival Time')
-    ax2.set_ylabel('Count')
-    ax2.set_title(f'{model_name.upper()} - Predicted Time Distribution')
-    ax2.legend(fontsize=8)
-
-    fig.suptitle(f'{dataset_name} - Sample #{sample_idx}', fontsize=12)
-    plt.tight_layout()
-    save_path = Path(save_dir) / f"{dataset_name.lower()}_{model_name}_cri_sample{sample_idx}.pdf"
-    fig.savefig(save_path, bbox_inches='tight')
-    plt.close(fig)
-    return save_path
-
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     for gpu in gpus:
@@ -138,6 +98,12 @@ if __name__ == "__main__":
                         help="Max MC samples for full tensor operations (C-cal/CrI) to avoid OOM (default: 32)")
     parser.add_argument("--max-cri-samples", type=int, default=128,
                         help="Max MC samples for CrI plotting to avoid OOM (default: 128)")
+    parser.add_argument("--cri-plot-samples", type=str, default=None,
+                        help="Comma-separated sample indices for CrI plots (e.g. 0,42,100). Default: 42")
+    parser.add_argument("--cri-plot-all", action="store_true",
+                        help="Plot CrI for all test samples (many PDFs)")
+    parser.add_argument("--cri-plot-random", action="store_true",
+                        help="Use random sample when not specifying --cri-plot-samples or --cri-plot-all")
     parser.add_argument("--no-early-stop", action="store_true",
                         help="Disable early stopping (overrides config files)")
     parser.add_argument("--wandb", action="store_true", help="Enable wandb experiment tracking")
@@ -156,6 +122,9 @@ if __name__ == "__main__":
     CRI_SAMPLES = args.cri_samples
     MAX_FULL_MC_SAMPLES = args.max_full_mc_samples
     MAX_CRI_SAMPLES = args.max_cri_samples
+    CRI_PLOT_SAMPLES = args.cri_plot_samples
+    CRI_PLOT_ALL = args.cri_plot_all
+    CRI_PLOT_RANDOM = args.cri_plot_random
     DISABLE_EARLY_STOP = args.no_early_stop
     USE_WANDB = args.wandb
     TUNE_FIRST = args.tune and not args.no_tune
@@ -174,6 +143,8 @@ if __name__ == "__main__":
     print(f"CrI samples: {CRI_SAMPLES}")
     print(f"Max full MC samples (OOM guard): {MAX_FULL_MC_SAMPLES}")
     print(f"Max CrI samples (OOM guard): {MAX_CRI_SAMPLES}")
+    cri_plot_desc = "all" if CRI_PLOT_ALL else (CRI_PLOT_SAMPLES or ("random" if CRI_PLOT_RANDOM else "42"))
+    print(f"CrI plot samples: {cri_plot_desc}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     print(f"Hyperparameters: {'Bayesian optimization (--tune)' if TUNE_FIRST else 'pre-tuned configs (--no-tune)'}")
     print("  Reg = regularization term (KL for VI, L2 for MLP/MCD/SNGP, 0 if none)")
@@ -418,15 +389,28 @@ if __name__ == "__main__":
                 _, p_value = chisquare(f_obs=observed, f_exp=expected)
                 c_calib = p_value
 
-                # Save CrI plot for a random test sample (Figure 2 from paper)
+                # Save CrI plot(s) (Figure 2 from paper). Generic for vi, mcd1, mcd2, mcd3.
                 try:
                     cri_surv_probs = surv_probs[:cri_samples] if cri_samples <= n_use else surv_probs
-                    sample_idx = min(42, cri_surv_probs.shape[1] - 1)
-                    cri_path = plot_credible_interval(
-                        event_times, cri_surv_probs,
-                        sanitized_t_test[sample_idx], sanitized_e_test[sample_idx],
-                        model_name, dataset_name, sample_idx, pt.RESULTS_DIR)
-                    print(f"     CrI plot saved ({CRI_SAMPLES} MC samples): {cri_path}")
+                    n_test = cri_surv_probs.shape[1]
+                    if CRI_PLOT_ALL:
+                        sample_indices = list(range(n_test))
+                    elif CRI_PLOT_SAMPLES:
+                        sample_indices = [int(x.strip()) for x in CRI_PLOT_SAMPLES.split(",")]
+                    else:
+                        idx = random.randint(0, n_test - 1) if CRI_PLOT_RANDOM else min(42, n_test - 1)
+                        sample_indices = [idx]
+                    sample_indices = [i for i in sample_indices if 0 <= i < n_test]
+                    if not sample_indices:
+                        sample_indices = [0]
+                    saved_paths = []
+                    for sample_idx in sample_indices:
+                        path = plot_credible_interval(
+                            event_times, cri_surv_probs,
+                            sanitized_t_test[sample_idx], sanitized_e_test[sample_idx],
+                            model_name, dataset_name, sample_idx, pt.RESULTS_DIR)
+                        saved_paths.append(path)
+                    print(f"     CrI plot(s) saved ({len(saved_paths)} file(s), {CRI_SAMPLES} MC samples): {saved_paths[0]}" + (f" ... +{len(saved_paths)-1} more" if len(saved_paths) > 1 else ""))
                 except Exception as e:
                     print(f"     CrI plot skipped: {e}")
             else:
