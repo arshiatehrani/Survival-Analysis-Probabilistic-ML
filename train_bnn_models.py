@@ -234,7 +234,12 @@ if __name__ == "__main__":
         X_train = df_train[cat_features+num_features]
         X_valid = df_valid[cat_features+num_features]
         X_test = df_test[cat_features+num_features]
-        print(f"  Split: train={len(X_train)}, valid={len(X_valid)}, test={len(X_test)}")
+        n_train, n_valid, n_test = len(X_train), len(X_valid), len(X_test)
+        e_train_pct = df_train["event"].mean() * 100
+        e_valid_pct = df_valid["event"].mean() * 100
+        e_test_pct = df_test["event"].mean() * 100
+        print(f"  Data layout: 70% train / 10% valid / 20% test (stratified by time+event)")
+        print(f"  Split: train={n_train} ({e_train_pct:.1f}% events) | valid={n_valid} ({e_valid_pct:.1f}% events) | test={n_test} ({e_test_pct:.1f}% events)")
         y_train = convert_to_structured(df_train["time"], df_train["event"])
         y_valid = convert_to_structured(df_valid["time"], df_valid["event"])
         y_test = convert_to_structured(df_test["time"], df_test["event"])
