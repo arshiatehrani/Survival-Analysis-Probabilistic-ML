@@ -176,6 +176,7 @@ if __name__ == "__main__":
     print(f"Max CrI samples (OOM guard): {MAX_CRI_SAMPLES}")
     print(f"Wandb: {'enabled' if USE_WANDB else 'disabled'}")
     print(f"Hyperparameters: {'Bayesian optimization (--tune)' if TUNE_FIRST else 'pre-tuned configs (--no-tune)'}")
+    print("  Reg = regularization term (KL for VI, L2 for MLP/MCD/SNGP, 0 if none)")
 
     # Run Bayesian optimization per dataset if --tune
     if TUNE_FIRST:

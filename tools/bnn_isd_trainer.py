@@ -42,6 +42,7 @@ def train_bnn_model(
         print(f"Training {model.get_name()}: reset mode is {reset_model}, number of epochs is {config.num_epochs}, "
               f"learning rate is {config.lr}, C1 is {config.c1}, "
               f"batch size is {config.batch_size}, device is {device}.")
+        print("  Progress: Total=loss, Reg=KL+L2+..., nll=neg.log-likelihood")
     #data_train, _, data_val = train_val_test_stratified_split(data_train, stratify_colname='both',
     #                                                          frac_train=0.9, frac_test=0.1,
     #                                                          random_state=random_state)
@@ -57,11 +58,11 @@ def train_bnn_model(
     best_val_nll = np.inf
     best_ep = -1
 
-    def _progress(epoch, total, train_loss, kl, train_nll, val_loss, val_nll):
+    def _progress(epoch, total, train_loss, reg, train_nll, val_loss, val_nll):
         pct = min(100, epoch * 100 // total)
         bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
         msg = (f"\r  [{bar}] {epoch}/{total} "
-               f"Train: Total={train_loss:.4f}, KL={kl:.4f}, nll={train_nll:.4f}; "
+               f"Train: Total={train_loss:.4f}, Reg={reg:.4f}, nll={train_nll:.4f}; "
                f"Val: Total={val_loss:.4f}, nll={val_nll:.4f}")
         sys.stdout.write(msg)
         sys.stdout.flush()
