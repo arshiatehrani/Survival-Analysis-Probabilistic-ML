@@ -48,7 +48,9 @@ def get_y_label(metric_name):
     else:
         return "INBLL"
 
-def plot_calibration_curves(percentiles, pred_obs, predictions, model_names, dataset_name):
+def plot_calibration_curves(percentiles, pred_obs, predictions, model_names, dataset_name, save_dir=None):
+    if save_dir is None:
+        save_dir = pt.RESULTS_DIR
     n_percentiles = len(percentiles.keys())
     fig, axes = plt.subplots(n_percentiles, 2, figsize=(12, 12))
     labels = list()
@@ -71,7 +73,7 @@ def plot_calibration_curves(percentiles, pred_obs, predictions, model_names, dat
     fig.tight_layout()
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right')
-    plt.savefig(Path.joinpath(pt.RESULTS_DIR, f"{dataset_name.lower()}_calibration.pdf"),
+    plt.savefig(Path.joinpath(Path(save_dir), f"{dataset_name.lower()}_calibration.pdf"),
                 format='pdf', bbox_inches="tight")
     plt.close()
 
@@ -118,7 +120,9 @@ def plot_credible_interval(event_times, surv_ensemble, actual_time, actual_event
     plt.close(fig)
     return save_path
 
-def plot_training_curves(results, dataset_name, model_names, metric_names):
+def plot_training_curves(results, dataset_name, model_names, metric_names, save_dir=None):
+    if save_dir is None:
+        save_dir = pt.RESULTS_DIR
     fig, axes = plt.subplots(1, 4, figsize=(18, 4))
     for (j, metric_name) in enumerate(metric_names):
         for (k, model_name) in enumerate(model_names):
@@ -133,6 +137,6 @@ def plot_training_curves(results, dataset_name, model_names, metric_names):
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper right')
     fig.tight_layout()
-    plt.savefig(Path.joinpath(pt.RESULTS_DIR, f"{dataset_name.lower()}_training_curves.pdf"),
+    plt.savefig(Path.joinpath(Path(save_dir), f"{dataset_name.lower()}_training_curves.pdf"),
                 format='pdf', bbox_inches="tight")
     plt.close()

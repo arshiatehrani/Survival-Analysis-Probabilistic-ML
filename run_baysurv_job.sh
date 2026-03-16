@@ -175,8 +175,10 @@ elif [ "$TUNE_MODE" = "1" ]; then
   echo "Starting Bayesian optimization + training at $(date)"
   python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10
 else
+  # echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
+  # python train_bnn_models.py --datasets SUPPORT --models vi
   echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
-  python train_bnn_models.py --datasets SUPPORT --models vi
+  python train_bnn_models.py --datasets METABRIC --models mcd1
 fi
 
 echo "Job finished on $(date)"

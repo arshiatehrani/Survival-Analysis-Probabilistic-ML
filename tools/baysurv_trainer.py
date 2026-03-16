@@ -8,7 +8,7 @@ class Trainer:
     def __init__(self, model, model_name, train_dataset, valid_dataset,
                  test_dataset, optimizer, loss_function, num_epochs, early_stop,
                  patience, n_samples_train, n_samples_valid, n_samples_test,
-                 use_wandb=False):
+                 use_wandb=False, checkpoint_dir=None):
         self.num_epochs = num_epochs
         self.model = model
         self.model_name = model_name
@@ -41,8 +41,9 @@ class Trainer:
         self.best_valid_nll = np.inf
         self.best_ep = -1
         
+        ckpt_dir = str(checkpoint_dir) if checkpoint_dir else f"{pt.MODELS_DIR}"
         self.checkpoint = tf.train.Checkpoint(optimizer=self.optimizer, model=self.model)
-        self.manager = tf.train.CheckpointManager(self.checkpoint, directory=f"{pt.MODELS_DIR}", max_to_keep=num_epochs)
+        self.manager = tf.train.CheckpointManager(self.checkpoint, directory=ckpt_dir, max_to_keep=num_epochs)
 
     def _regularization_term(self):
         if not self.model.losses:

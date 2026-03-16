@@ -36,6 +36,7 @@ import argparse
 import os
 from tools.results_generator import ResultsGenerator, TeeLogger
 from utility.plot import plot_credible_interval
+from utility.run_manager import RunManager
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -104,8 +105,15 @@ if __name__ == "__main__":
         import wandb
         os.environ["WANDB_SILENT"] = "true"
 
-    logger = TeeLogger.start(Path.joinpath(pt.RESULTS_DIR, "sota_training_log.txt"))
-    rg = ResultsGenerator(pt.RESULTS_DIR)
+    run = RunManager(
+        base_results_dir=pt.RESULTS_DIR,
+        script_name="train_sota_models.py",
+        datasets=DATASETS,
+        models=MODELS,
+        cli_args=vars(args),
+    )
+    logger = TeeLogger.start(run.run_dir / "sota_training_log.txt")
+    rg = ResultsGenerator(run.run_dir)
 
     print(f"Torch device: {device}")
     print(f"Datasets: {DATASETS}")
@@ -361,7 +369,7 @@ if __name__ == "__main__":
                         path = plot_credible_interval(
                             times_for_cri, cri_ensemble,
                             sanitized_t_test[sample_idx], sanitized_e_test[sample_idx],
-                            model_name, dataset_name, sample_idx, pt.RESULTS_DIR)
+                            model_name, dataset_name, sample_idx, run.run_dir)
                         saved_paths.append(path)
                     n_mc = cri_ensemble.shape[0]
                     print(f"     CrI plot(s) saved ({len(saved_paths)} file(s), {n_mc} MC samples): {saved_paths[0]}" + (f" ... +{len(saved_paths)-1} more" if len(saved_paths) > 1 else ""))
@@ -433,19 +441,35 @@ if __name__ == "__main__":
 
             # Save model
             if model_name in ["baycox", "baymtlr"]:
-                path = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}.pt")
+                path = run.models_dir / f"{dataset_name.lower()}_{model_name.lower()}.pt"
                 torch.save(model.state_dict(), path)
             else:
-                path = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}.joblib")
+                path = run.models_dir / f"{dataset_name.lower()}_{model_name.lower()}.joblib"
                 joblib.dump(model, path)
             print(f"  -> Model saved: {path}")
 
+            # Log run metadata
+            model_metrics = {
+                "CI": ci, "IBS": ibs, "MAEHinge": mae_hinge, "MAEPseudo": mae_pseudo,
+                "DCalib": d_calib, "CCalib": c_calib, "ICI": ici,
+                "KM": km_mse, "INBLL": inbll,
+            }
+            run.log_model_result(dataset_name, model_name,
+                config=dict(config) if not isinstance(config, dict) else config,
+                metrics=model_metrics,
+                extra={
+                    "n_params": n_params if n_params else 0,
+                    "train_time_s": round(train_time, 2),
+                    "test_time_s": round(test_time, 2),
+                })
+
             # Save results
-            results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"sota_results.csv"), index=False)
+            results.to_csv(run.run_dir / "sota_results.csv", index=False)
 
         # After all models for this dataset: joint calibration plot
         rg.plot_calibration_curves_all(all_calib_data, event_times_pct,
                                         trained_models, dataset_name)
 
     logger.close()
+    run.finalize()
 

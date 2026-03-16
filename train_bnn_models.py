@@ -47,6 +47,7 @@ import argparse
 import os
 from tools.results_generator import ResultsGenerator, TeeLogger
 from utility.plot import plot_credible_interval
+from utility.run_manager import RunManager
 
 import warnings
 import copy
@@ -133,8 +134,15 @@ if __name__ == "__main__":
         import wandb
         os.environ["WANDB_SILENT"] = "true"
 
-    logger = TeeLogger.start(Path.joinpath(pt.RESULTS_DIR, "bnn_training_log.txt"))
-    rg = ResultsGenerator(pt.RESULTS_DIR)
+    run = RunManager(
+        base_results_dir=pt.RESULTS_DIR,
+        script_name="train_bnn_models.py",
+        datasets=DATASETS,
+        models=MODELS,
+        cli_args=vars(args),
+    )
+    logger = TeeLogger.start(run.run_dir / "bnn_training_log.txt")
+    rg = ResultsGenerator(run.run_dir)
 
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")
@@ -313,7 +321,8 @@ if __name__ == "__main__":
                               n_samples_train=n_samples_train,
                               n_samples_valid=n_samples_valid,
                               n_samples_test=n_samples_test,
-                              use_wandb=USE_WANDB)
+                              use_wandb=USE_WANDB,
+                              checkpoint_dir=run.models_dir)
             train_start_time = time()
             trainer.train_and_evaluate()
             train_time = time() - train_start_time
@@ -323,7 +332,7 @@ if __name__ == "__main__":
 
             # Get model for best epoch
             best_ep = trainer.best_ep
-            status = trainer.checkpoint.restore(Path.joinpath(pt.MODELS_DIR, f"ckpt-{best_ep}"))
+            status = trainer.checkpoint.restore(Path.joinpath(run.models_dir, f"ckpt-{best_ep}"))
             model = trainer.model
 
             # Compute survival function
@@ -408,7 +417,7 @@ if __name__ == "__main__":
                         path = plot_credible_interval(
                             event_times, cri_surv_probs,
                             sanitized_t_test[sample_idx], sanitized_e_test[sample_idx],
-                            model_name, dataset_name, sample_idx, pt.RESULTS_DIR)
+                            model_name, dataset_name, sample_idx, run.run_dir)
                         saved_paths.append(path)
                     print(f"     CrI plot(s) saved ({len(saved_paths)} file(s), {CRI_SAMPLES} MC samples): {saved_paths[0]}" + (f" ... +{len(saved_paths)-1} more" if len(saved_paths) > 1 else ""))
                 except Exception as e:
@@ -481,11 +490,34 @@ if __name__ == "__main__":
             training_results = pd.concat([training_results, res_df], axis=0)
             
             # Save model
-            weights_dir = Path.joinpath(pt.MODELS_DIR, f"{dataset_name.lower()}_{model_name.lower()}")
+            weights_dir = run.models_dir / f"{dataset_name.lower()}_{model_name.lower()}"
             weights_dir.mkdir(parents=True, exist_ok=True)
             path = weights_dir / "weights.weights.h5"
             model.save_weights(path)
             print(f"  -> Model saved: {path}")
+
+            # Log run metadata
+            model_config = {
+                "network_layers": layers, "activation_fn": activation_fn,
+                "dropout_rate": dropout_rate, "l2_reg": l2_reg,
+                "batch_size": batch_size, "learning_rate": float(optimizer.learning_rate.numpy()),
+                "n_samples_train": n_samples_train, "n_samples_valid": n_samples_valid,
+                "n_samples_test": n_samples_test,
+            }
+            model_metrics = {
+                "CI": ci, "IBS": ibs, "MAEHinge": mae_hinge, "MAEPseudo": mae_pseudo,
+                "DCalib": d_calib, "CCalib": c_calib, "ICI": ici,
+                "KM": km_mse, "INBLL": inbll,
+            }
+            run.log_model_result(dataset_name, model_name,
+                config=model_config, metrics=model_metrics,
+                extra={
+                    "n_params": n_params if n_params else 0,
+                    "best_epoch": best_ep,
+                    "early_stopped": early_stop and (best_ep < N_EPOCHS),
+                    "train_time_s": round(train_time, 2),
+                    "test_time_s": round(test_time, 2),
+                })
 
             # Clean up to free GPU memory before next model (critical for MIG 1g.10gb)
             del trainer.checkpoint, trainer.manager
@@ -495,8 +527,8 @@ if __name__ == "__main__":
             gc.collect()
 
             # Save results
-            training_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_training_results.csv"), index=False)
-            test_results.to_csv(Path.joinpath(pt.RESULTS_DIR, f"baysurv_test_results.csv"), index=False)
+            training_results.to_csv(run.run_dir / "baysurv_training_results.csv", index=False)
+            test_results.to_csv(run.run_dir / "baysurv_test_results.csv", index=False)
 
         # After all models for this dataset: joint calibration + loss curves
         rg.plot_calibration_curves_all(all_calib_data, event_times_pct,
@@ -505,4 +537,5 @@ if __name__ == "__main__":
                                       trained_models)
 
     logger.close()
+    run.finalize()
 

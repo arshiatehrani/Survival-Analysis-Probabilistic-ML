@@ -364,7 +364,8 @@ class ResultsGenerator:
 
             if pred_obs and active_models:
                 plot_calibration_curves(percentiles, pred_obs, predictions,
-                                        active_models, dataset_name)
+                                        active_models, dataset_name,
+                                        save_dir=self.results_dir)
                 print(f"  Calibration curves saved for {dataset_name}")
         except Exception as e:
             print(f"  Calibration curves skipped: {e}")
@@ -380,7 +381,8 @@ class ResultsGenerator:
             metric_names = ["TrainLoss", "TrainVariance",
                             "ValidLoss", "ValidVariance"]
             plot_training_curves(training_results_df, dataset_name,
-                                 model_names, metric_names)
+                                 model_names, metric_names,
+                                 save_dir=self.results_dir)
             print(f"  Training loss curves saved for {dataset_name}")
         except Exception as e:
             print(f"  Training loss curves skipped: {e}")
