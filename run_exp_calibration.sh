@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=calib_loss
-#SBATCH --time=0-04:00:00
+#SBATCH --time=0-05:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
