@@ -298,6 +298,22 @@ if __name__ == "__main__":
     best_ep = trainer.best_ep
     print(f"\n  Trained in {train_time:.2f}s (best epoch: {best_ep})")
 
+    # ---- Save Training Curves ----
+    n_epochs_ran = len(trainer.train_total)
+    curves_data = {"epoch": list(range(1, n_epochs_ran + 1))}
+    for name, vals in [("train_total", trainer.train_total),
+                       ("train_nll", trainer.train_nll),
+                       ("train_kl", trainer.train_kl),
+                       ("train_var", trainer.train_variance),
+                       ("valid_total", trainer.valid_total),
+                       ("valid_nll", trainer.valid_nll),
+                       ("valid_kl", trainer.valid_kl),
+                       ("valid_var", trainer.valid_variance)]:
+        if vals and len(vals) == n_epochs_ran:
+            curves_data[name] = vals
+    pd.DataFrame(curves_data).to_csv(seed_dir / "training_curves.csv", index=False)
+    print(f"  Training curves: {seed_dir / 'training_curves.csv'}")
+
     # ---- Restore Best Checkpoint ----
     trainer.checkpoint.restore(models_dir / f"ckpt-{best_ep}")
     model = trainer.model

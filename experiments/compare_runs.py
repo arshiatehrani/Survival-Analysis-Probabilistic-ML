@@ -82,7 +82,11 @@ def aggregate_across_seeds(df):
 
 
 def run_significance_tests(df, baseline_config="cox"):
-    """Run paired t-test and Wilcoxon signed-rank test between baseline and each other config."""
+    """Run paired t-test and Wilcoxon signed-rank test between baseline and each other config.
+
+    Applies Bonferroni correction: for each (dataset, metric) group the raw
+    p-values are multiplied by the number of comparisons in that group.
+    """
     results = []
     for dataset in df["DatasetName"].unique():
         ds_df = df[df["DatasetName"] == dataset]
@@ -138,11 +142,27 @@ def run_significance_tests(df, baseline_config="cox"):
                     "w_stat": w_stat,
                     "w_pval": w_pval,
                     "n_pairs": n,
-                    "Significant_005": t_pval < 0.05 if not np.isnan(t_pval) else False,
                     "Winner": better,
                 })
 
-    return pd.DataFrame(results)
+    sig_df = pd.DataFrame(results)
+    if sig_df.empty:
+        return sig_df
+
+    # Bonferroni correction: multiply p-values by the number of comparisons
+    # within each (Dataset, Metric) group
+    for col_raw, col_adj in [("t_pval", "t_pval_adj"), ("w_pval", "w_pval_adj")]:
+        adjusted = []
+        for _, grp in sig_df.groupby(["Dataset", "Metric"]):
+            n_comparisons = len(grp)
+            adj = grp[col_raw].clip(upper=1.0) * n_comparisons
+            adjusted.append(adj.clip(upper=1.0))  # cap at 1.0
+        sig_df[col_adj] = pd.concat(adjusted).sort_index()
+
+    sig_df["Significant_005"] = sig_df["t_pval_adj"] < 0.05
+    sig_df["Significant_001"] = sig_df["t_pval_adj"] < 0.01
+
+    return sig_df
 
 
 def make_summary_table(agg_df, output_dir, dataset):
@@ -243,6 +263,52 @@ def plot_metric_bars(agg_df, output_dir, dataset):
     print(f"  Metric bars: {out_path}")
 
 
+def plot_box_plots(raw_df, output_dir, dataset):
+    """Box plots showing distribution of each metric across seeds per loss config."""
+    ds = raw_df[raw_df["DatasetName"] == dataset].copy()
+    if ds.empty:
+        return
+
+    metrics_to_plot = ["CI", "IBS", "DCalib", "INBLL"]
+    loss_configs = sorted(ds["LossConfig"].unique())
+    n_metrics = len(metrics_to_plot)
+
+    fig, axes = plt.subplots(1, n_metrics, figsize=(5 * n_metrics, 7))
+
+    for ax, m in zip(axes, metrics_to_plot):
+        data_per_config = []
+        labels = []
+        for lc in loss_configs:
+            vals = ds.loc[ds["LossConfig"] == lc, m].dropna().values
+            if len(vals) > 0:
+                data_per_config.append(vals)
+                labels.append(lc)
+
+        bp = ax.boxplot(data_per_config, patch_artist=True, showmeans=True,
+                        meanprops=dict(marker='D', markerfacecolor='red', markersize=5),
+                        medianprops=dict(color='black', linewidth=1.5))
+
+        # Color boxes
+        colors = plt.cm.Set3(np.linspace(0, 1, len(data_per_config)))
+        for patch, color in zip(bp['boxes'], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.8)
+
+        ax.set_title(m, fontsize=13, fontweight='bold')
+        ax.set_xticks(range(1, len(labels) + 1))
+        ax.set_xticklabels(labels, rotation=55, ha='right', fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+
+    plt.suptitle(f"Metric Distributions — {dataset} (across seeds)",
+                 fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    out_path = output_dir / f"boxplots_{dataset}.pdf"
+    fig.savefig(out_path, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    print(f"  Box plots: {out_path}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Compare calibration loss experiment results")
     parser.add_argument("--experiment-name", required=True, help="Experiment session name")
@@ -280,29 +346,31 @@ def main():
         make_summary_table(agg_df, comp_dir, dataset)
         plot_pareto_frontier(agg_df, comp_dir, dataset)
         plot_metric_bars(agg_df, comp_dir, dataset)
+        plot_box_plots(df, comp_dir, dataset)
 
     # Significance tests
     if agg_df["n_seeds"].max() >= 3:
         print(f"\n{'='*60}")
-        print("SIGNIFICANCE TESTS (paired t-test, Wilcoxon)")
+        print("SIGNIFICANCE TESTS (paired t-test + Bonferroni, Wilcoxon)")
         print(f"{'='*60}")
         sig_df = run_significance_tests(agg_df, baseline_config="cox")
         if not sig_df.empty:
             sig_df.to_csv(comp_dir / "significance_tests.csv", index=False)
             print(f"  Saved: {comp_dir / 'significance_tests.csv'}")
 
-            # Print significant results
+            # Print significant results (after Bonferroni correction)
             sig_only = sig_df[sig_df["Significant_005"]]
             if not sig_only.empty:
-                print("\n  Statistically significant differences (p < 0.05):")
+                print("\n  Statistically significant differences (Bonferroni-adjusted p < 0.05):")
                 for _, r in sig_only.iterrows():
                     direction = "↑" if r["Winner"] != "cox" else "↓"
+                    star = "**" if r.get("Significant_001", False) else "*"
                     print(f"    {r['Dataset']} | {r['Metric']}: "
                           f"{r['Baseline']}: {r['Baseline_mean']:.4f} vs "
                           f"{r['Compared']}: {r['Compared_mean']:.4f} "
-                          f"(p={r['t_pval']:.4f}, d={r['Cohen_d']:.2f}) {direction}")
+                          f"(p_adj={r['t_pval_adj']:.4f}, d={r['Cohen_d']:.2f}) {direction} {star}")
             else:
-                print("  No statistically significant differences found at p < 0.05")
+                print("  No statistically significant differences found (Bonferroni-adjusted p < 0.05)")
     else:
         print("\n  Skipping significance tests (need at least 3 seeds)")
 
