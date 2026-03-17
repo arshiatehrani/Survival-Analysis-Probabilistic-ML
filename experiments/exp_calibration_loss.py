@@ -374,14 +374,18 @@ if __name__ == "__main__":
         c_calib = p_value
 
     # ICI
-    deltas = {}
-    for t0 in event_times_pct.values():
-        _, _, _, deltas_t0 = survival_probability_calibration(
-            sanitized_surv_preds, sanitized_y_test["time"],
-            sanitized_y_test["event"], t0
-        )
-        deltas[t0] = deltas_t0
-    ici = list(deltas.values())[-1].mean()
+    try:
+        deltas = {}
+        for t0 in event_times_pct.values():
+            _, _, _, deltas_t0 = survival_probability_calibration(
+                sanitized_surv_preds, sanitized_y_test["time"],
+                sanitized_y_test["event"], t0
+            )
+            deltas[t0] = deltas_t0
+        ici = list(deltas.values())[-1].mean()
+    except Exception as e:
+        print(f"  WARNING: ICI computation failed ({type(e).__name__}: {e}). Setting ICI=NaN.")
+        ici = np.nan
 
     # ---- Print Results ----
     dcal_str = f"{d_calib:.4f}" if d_calib > 0.05 else f"{d_calib:.4f}*"
