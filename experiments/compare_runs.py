@@ -1,225 +1,317 @@
-"""Compare calibration-aware loss experiment runs.
+"""Compare results across calibration-loss experiments.
 
-Reads runs_index.csv (or individual run_metadata.json files), filters for
-calibration loss experiments, and produces:
-  1. Summary table (CSV + printed)
-  2. Pareto frontier plot (CI vs D-Cal)
-  3. Bar charts for key metrics
+Reads the hierarchical structure and aggregates across seeds.
+Generates: summary tables (mean ± std), Pareto plots, bar charts, significance tests.
 
 Usage:
-    python experiments/compare_runs.py
-    python experiments/compare_runs.py --dataset METABRIC
+    python experiments/compare_runs.py --experiment-name 20260316_calibration_loss
+    python experiments/compare_runs.py --experiment-name 20260316_calibration_loss --dataset METABRIC
 """
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import argparse
-import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-
+from scipy import stats
 import paths as pt
 
-SCRIPT_FILTER = "exp_calibration_loss.py"
+import warnings
+warnings.filterwarnings('ignore')
+
+# Try to import matplotlib; set non-interactive backend for cluster
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+
+METRIC_COLS = ["CI", "IBS", "DCalib", "CCalib", "ICI", "MAEHinge", "MAEPseudo", "KM", "INBLL"]
+HIGHER_BETTER = {"CI": True, "DCalib": True, "CCalib": True}
+LOWER_BETTER = {"IBS": True, "ICI": True, "MAEHinge": True, "MAEPseudo": True, "KM": True, "INBLL": True}
 
 
-def load_experiment_results(results_dir, dataset_filter=None):
-    """Scan run directories for experiment results CSVs and metadata."""
+def load_experiment_data(experiment_dir, dataset_filter=None):
+    """Load all metrics.csv from the hierarchical structure."""
+    experiment_dir = Path(experiment_dir)
     rows = []
-    results_path = Path(results_dir)
-    for run_dir in sorted(results_path.iterdir()):
-        if not run_dir.is_dir():
+
+    for dataset_dir in sorted(experiment_dir.iterdir()):
+        if not dataset_dir.is_dir() or dataset_dir.name in ("comparisons",):
             continue
-        csv_path = run_dir / "experiment_results.csv"
-        meta_path = run_dir / "run_metadata.json"
-        if not csv_path.exists() or not meta_path.exists():
+        if dataset_filter and dataset_dir.name != dataset_filter:
             continue
 
-        with open(meta_path) as f:
-            meta = json.load(f)
-
-        if meta.get("script") != SCRIPT_FILTER:
-            continue
-
-        df = pd.read_csv(csv_path)
-        df["run_id"] = meta.get("run_id", run_dir.name)
-        df["run_dir"] = str(run_dir)
-
-        if dataset_filter and df["DatasetName"].iloc[0] != dataset_filter:
-            continue
-
-        rows.append(df)
+        for loss_dir in sorted(dataset_dir.iterdir()):
+            if not loss_dir.is_dir():
+                continue
+            for seed_dir in sorted(loss_dir.iterdir()):
+                if not seed_dir.is_dir() or not seed_dir.name.startswith("seed_"):
+                    continue
+                metrics_file = seed_dir / "metrics.csv"
+                if metrics_file.exists():
+                    df = pd.read_csv(metrics_file)
+                    rows.append(df)
 
     if not rows:
-        print("No experiment results found.")
+        print("No results found!")
         return pd.DataFrame()
 
     return pd.concat(rows, ignore_index=True)
 
 
-def print_summary_table(df):
-    """Print formatted summary table."""
-    cols = ["DatasetName", "LossType", "Lambda", "Mu",
-            "CI", "IBS", "DCalib", "CCalib", "ICI", "KM", "INBLL",
-            "BestEpoch", "TrainTime"]
-    available = [c for c in cols if c in df.columns]
-    summary = df[available].copy()
-
-    # Format floats
-    for col in ["CI", "IBS", "DCalib", "CCalib", "ICI", "KM", "INBLL"]:
-        if col in summary.columns:
-            summary[col] = summary[col].map(lambda x: f"{x:.4f}")
-    for col in ["TrainTime"]:
-        if col in summary.columns:
-            summary[col] = summary[col].map(lambda x: f"{x:.1f}s")
-
-    print("\n" + "=" * 100)
-    print("CALIBRATION LOSS EXPERIMENT COMPARISON")
-    print("=" * 100)
-    print(summary.to_string(index=False))
-    print("=" * 100)
-
-    # Highlight best results
-    numeric_df = df[["LossType", "Lambda", "CI", "IBS", "DCalib", "ICI"]].copy()
-    best_ci = numeric_df.loc[numeric_df["CI"].idxmax()]
-    best_dcal = numeric_df.loc[numeric_df["DCalib"].idxmax()]
-    best_ibs = numeric_df.loc[numeric_df["IBS"].idxmin()]
-    best_ici = numeric_df.loc[numeric_df["ICI"].idxmin()]
-
-    print(f"\n  Best CI:    {best_ci['LossType']} (λ={best_ci['Lambda']}) → {best_ci['CI']:.4f}")
-    print(f"  Best D-Cal: {best_dcal['LossType']} (λ={best_dcal['Lambda']}) → {best_dcal['DCalib']:.4f}")
-    print(f"  Best IBS:   {best_ibs['LossType']} (λ={best_ibs['Lambda']}) → {best_ibs['IBS']:.4f}")
-    print(f"  Best ICI:   {best_ici['LossType']} (λ={best_ici['Lambda']}) → {best_ici['ICI']:.4f}")
-
-    # Validation-based selection: best CI among D-Cal > 0.05
-    calibrated = numeric_df[numeric_df["DCalib"] > 0.05]
-    if len(calibrated) > 0:
-        selected = calibrated.loc[calibrated["CI"].idxmax()]
-        print(f"\n  ★ Recommended (best CI with D-Cal>0.05): {selected['LossType']} (λ={selected['Lambda']})")
-        print(f"    CI={selected['CI']:.4f}, D-Cal={selected['DCalib']:.4f}, IBS={selected['IBS']:.4f}")
-    else:
-        print(f"\n  ⚠ No experiment achieved D-Cal p-value > 0.05")
+def aggregate_across_seeds(df):
+    """Compute mean ± std per (Dataset, LossConfig) across seeds."""
+    group_cols = ["DatasetName", "LossConfig", "LossType", "Lambda", "Mu", "ModelName"]
+    agg_rows = []
+    for key, grp in df.groupby(group_cols, dropna=False):
+        row = dict(zip(group_cols, key))
+        row["n_seeds"] = len(grp)
+        row["Seeds"] = sorted(grp["Seed"].tolist())
+        for m in METRIC_COLS:
+            if m in grp.columns:
+                vals = grp[m].dropna()
+                row[f"{m}_mean"] = vals.mean()
+                row[f"{m}_std"] = vals.std(ddof=1) if len(vals) > 1 else 0.0
+                row[f"{m}_values"] = vals.tolist()
+        row["BestEpoch_mean"] = grp["BestEpoch"].mean()
+        row["TrainTime_mean"] = grp["TrainTime"].mean()
+        agg_rows.append(row)
+    return pd.DataFrame(agg_rows)
 
 
-def plot_pareto_frontier(df, save_dir):
-    """Plot CI vs D-Cal Pareto frontier."""
-    fig, ax = plt.subplots(1, 1, figsize=(8, 6))
+def run_significance_tests(df, baseline_config="cox"):
+    """Run paired t-test and Wilcoxon signed-rank test between baseline and each other config."""
+    results = []
+    for dataset in df["DatasetName"].unique():
+        ds_df = df[df["DatasetName"] == dataset]
+        baseline = ds_df[ds_df["LossConfig"] == baseline_config]
+        if baseline.empty:
+            print(f"  Warning: no baseline '{baseline_config}' found for {dataset}")
+            continue
 
-    # Color by loss type family
-    colors = {
-        "cox": "#e74c3c", "ibs": "#3498db", "crps": "#2ecc71",
-        "joint_ibs": "#9b59b6", "joint_crps": "#f39c12", "joint_crps_kl": "#1abc9c"
-    }
+        baseline_row = baseline.iloc[0]
+        for _, row in ds_df.iterrows():
+            if row["LossConfig"] == baseline_config:
+                continue
+            for m in ["CI", "IBS", "DCalib", "INBLL"]:
+                vals_key = f"{m}_values"
+                if vals_key not in row or vals_key not in baseline_row:
+                    continue
+                baseline_vals = baseline_row[vals_key]
+                other_vals = row[vals_key]
 
-    for _, row in df.iterrows():
-        lt = row["LossType"]
-        color = colors.get(lt, "#95a5a6")
-        label = lt
-        if "joint" in lt:
-            label = f"{lt} (λ={row['Lambda']}"
-            if row["Mu"] > 0:
-                label += f", μ={row['Mu']}"
-            label += ")"
+                n = min(len(baseline_vals), len(other_vals))
+                if n < 3:
+                    continue
+                bv = np.array(baseline_vals[:n])
+                ov = np.array(other_vals[:n])
 
-        ax.scatter(row["CI"], row["DCalib"], c=color, s=120, zorder=5, edgecolors="white", linewidth=1.5)
-        ax.annotate(label, (row["CI"], row["DCalib"]),
-                    textcoords="offset points", xytext=(8, 5), fontsize=8,
-                    color=color, fontweight="bold")
+                # Paired t-test
+                t_stat, t_pval = stats.ttest_rel(bv, ov)
 
-    ax.axhline(y=0.05, color="red", linestyle="--", alpha=0.5, label="D-Cal p=0.05 threshold")
-    ax.set_xlabel("Concordance Index (CI) →", fontsize=12)
-    ax.set_ylabel("D-Calibration p-value →", fontsize=12)
-    ax.set_title(f"Pareto Frontier: Discrimination vs Calibration\n{df['DatasetName'].iloc[0]}", fontsize=14)
-    ax.legend(loc="lower left", fontsize=9)
+                # Wilcoxon signed-rank (needs n >= 6 ideally, but will try)
+                try:
+                    w_stat, w_pval = stats.wilcoxon(bv, ov, alternative='two-sided')
+                except ValueError:
+                    w_stat, w_pval = np.nan, np.nan
+
+                # Effect size (Cohen's d for paired samples)
+                diff = bv - ov
+                cohens_d = diff.mean() / diff.std(ddof=1) if diff.std(ddof=1) > 0 else 0.0
+
+                better = "baseline" if (m in HIGHER_BETTER and bv.mean() > ov.mean()) or \
+                         (m in LOWER_BETTER and bv.mean() < ov.mean()) else row["LossConfig"]
+
+                results.append({
+                    "Dataset": dataset,
+                    "Metric": m,
+                    "Baseline": baseline_config,
+                    "Compared": row["LossConfig"],
+                    "Baseline_mean": bv.mean(),
+                    "Compared_mean": ov.mean(),
+                    "Diff_mean": diff.mean(),
+                    "Cohen_d": cohens_d,
+                    "t_stat": t_stat,
+                    "t_pval": t_pval,
+                    "w_stat": w_stat,
+                    "w_pval": w_pval,
+                    "n_pairs": n,
+                    "Significant_005": t_pval < 0.05 if not np.isnan(t_pval) else False,
+                    "Winner": better,
+                })
+
+    return pd.DataFrame(results)
+
+
+def make_summary_table(agg_df, output_dir, dataset):
+    """Create a readable summary CSV with mean ± std."""
+    rows = []
+    for _, r in agg_df[agg_df["DatasetName"] == dataset].iterrows():
+        row = {
+            "Loss Config": r["LossConfig"],
+            "Seeds": r["n_seeds"],
+        }
+        for m in METRIC_COLS:
+            mean_val = r.get(f"{m}_mean", np.nan)
+            std_val = r.get(f"{m}_std", np.nan)
+            if not np.isnan(mean_val):
+                row[m] = f"{mean_val:.4f} ± {std_val:.4f}"
+        row["Avg Epoch"] = f"{r['BestEpoch_mean']:.1f}"
+        row["Avg Train(s)"] = f"{r['TrainTime_mean']:.1f}"
+        rows.append(row)
+
+    summary_df = pd.DataFrame(rows)
+    out_path = output_dir / f"summary_{dataset}.csv"
+    summary_df.to_csv(out_path, index=False)
+    print(f"  Summary: {out_path}")
+
+    # Also print to stdout
+    print(f"\n  === {dataset} Summary (mean ± std across {agg_df['n_seeds'].iloc[0]} seeds) ===")
+    print(summary_df.to_string(index=False))
+    return summary_df
+
+
+def plot_pareto_frontier(agg_df, output_dir, dataset):
+    """Plot CI vs D-Cal with error bars across seeds."""
+    ds = agg_df[agg_df["DatasetName"] == dataset].copy()
+    if ds.empty:
+        return
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 7))
+    colors = plt.cm.tab10(np.linspace(0, 1, len(ds)))
+
+    for i, (_, row) in enumerate(ds.iterrows()):
+        ax.errorbar(
+            row["CI_mean"], row["DCalib_mean"],
+            xerr=row["CI_std"], yerr=row["DCalib_std"],
+            fmt='o', markersize=10, capsize=5, capthick=1.5,
+            color=colors[i], label=row["LossConfig"],
+            zorder=3
+        )
+
+    ax.axhline(y=0.05, color='red', linestyle='--', alpha=0.5, label='D-Cal p=0.05')
+    ax.set_xlabel("Concordance Index (CI) ↑", fontsize=13)
+    ax.set_ylabel("D-Calibration p-value ↑", fontsize=13)
+    ax.set_title(f"Discrimination vs Calibration — {dataset}\n(mean ± std across seeds)", fontsize=14)
+    ax.legend(fontsize=9, bbox_to_anchor=(1.02, 1), loc='upper left')
     ax.grid(True, alpha=0.3)
-
-    save_path = save_dir / "pareto_frontier.pdf"
-    fig.savefig(save_path, bbox_inches="tight", dpi=150)
-    plt.close(fig)
-    print(f"  Pareto plot saved: {save_path}")
-    return save_path
-
-
-def plot_metric_bars(df, save_dir):
-    """Bar chart comparison of key metrics across experiments."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    metrics = [("CI", "Concordance Index (↑)", True),
-               ("IBS", "Integrated Brier Score (↓)", False),
-               ("DCalib", "D-Calibration p-value (↑)", True),
-               ("ICI", "ICI (↓)", False)]
-
-    labels = []
-    for _, row in df.iterrows():
-        lt = row["LossType"]
-        if "joint" in lt:
-            lbl = f"{lt}\nλ={row['Lambda']}"
-            if row.get("Mu", 0) > 0:
-                lbl += f"\nμ={row['Mu']}"
-        else:
-            lbl = lt
-        labels.append(lbl)
-
-    colors = plt.cm.Set2(np.linspace(0, 1, len(df)))
-
-    for idx, (metric, title, higher_better) in enumerate(metrics):
-        ax = axes[idx // 2, idx % 2]
-        values = df[metric].values
-        bars = ax.bar(range(len(values)), values, color=colors, edgecolor="white", linewidth=0.5)
-        ax.set_xticks(range(len(values)))
-        ax.set_xticklabels(labels, fontsize=8, rotation=45, ha="right")
-        ax.set_title(title, fontsize=11, fontweight="bold")
-        ax.grid(axis="y", alpha=0.3)
-
-        # Highlight best
-        best_idx = values.argmax() if higher_better else values.argmin()
-        bars[best_idx].set_edgecolor("gold")
-        bars[best_idx].set_linewidth(3)
-
-    fig.suptitle(f"Metric Comparison: {df['DatasetName'].iloc[0]}", fontsize=14, fontweight="bold")
     plt.tight_layout()
 
-    save_path = save_dir / "metric_comparison.pdf"
-    fig.savefig(save_path, bbox_inches="tight", dpi=150)
+    out_path = output_dir / f"pareto_{dataset}.pdf"
+    fig.savefig(out_path, bbox_inches='tight', dpi=150)
     plt.close(fig)
-    print(f"  Metrics plot saved: {save_path}")
-    return save_path
+    print(f"  Pareto plot: {out_path}")
+
+
+def plot_metric_bars(agg_df, output_dir, dataset):
+    """Bar chart comparing key metrics across loss configs with error bars."""
+    ds = agg_df[agg_df["DatasetName"] == dataset].copy()
+    if ds.empty:
+        return
+
+    metrics_to_plot = ["CI", "IBS", "DCalib", "INBLL"]
+    fig, axes = plt.subplots(1, len(metrics_to_plot), figsize=(5 * len(metrics_to_plot), 6))
+
+    x = np.arange(len(ds))
+    labels = ds["LossConfig"].tolist()
+
+    for ax, m in zip(axes, metrics_to_plot):
+        means = ds[f"{m}_mean"].values
+        stds = ds[f"{m}_std"].values
+        bars = ax.bar(x, means, yerr=stds, capsize=4, alpha=0.8, edgecolor='black', linewidth=0.5)
+
+        # Colour best bar green
+        if m in HIGHER_BETTER:
+            best_idx = np.argmax(means)
+        else:
+            best_idx = np.argmin(means)
+        bars[best_idx].set_facecolor('#2ecc71')
+
+        ax.set_title(m, fontsize=13, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=55, ha='right', fontsize=8)
+        ax.grid(axis='y', alpha=0.3)
+
+    plt.suptitle(f"Metric Comparison — {dataset} (mean ± std)", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+
+    out_path = output_dir / f"metrics_{dataset}.pdf"
+    fig.savefig(out_path, bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    print(f"  Metric bars: {out_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Compare calibration loss experiment results")
+    parser.add_argument("--experiment-name", required=True, help="Experiment session name")
+    parser.add_argument("--dataset", default=None, help="Filter to one dataset")
+    args = parser.parse_args()
+
+    experiment_dir = Path(pt.RESULTS_DIR) / args.experiment_name
+    if not experiment_dir.exists():
+        print(f"ERROR: {experiment_dir} does not exist")
+        sys.exit(1)
+
+    print(f"{'='*60}")
+    print(f"Comparing results: {experiment_dir}")
+    print(f"{'='*60}")
+
+    # Load all data
+    df = load_experiment_data(experiment_dir, args.dataset)
+    if df.empty:
+        return
+    print(f"  Loaded {len(df)} individual results")
+
+    # Aggregate across seeds
+    agg_df = aggregate_across_seeds(df)
+    print(f"  Found {len(agg_df)} unique configurations")
+
+    # Create output dir
+    comp_dir = experiment_dir / "comparisons"
+    comp_dir.mkdir(exist_ok=True)
+
+    # Per-dataset analysis
+    for dataset in sorted(df["DatasetName"].unique()):
+        print(f"\n{'#'*40}")
+        print(f"# {dataset}")
+        print(f"{'#'*40}")
+        make_summary_table(agg_df, comp_dir, dataset)
+        plot_pareto_frontier(agg_df, comp_dir, dataset)
+        plot_metric_bars(agg_df, comp_dir, dataset)
+
+    # Significance tests
+    if agg_df["n_seeds"].max() >= 3:
+        print(f"\n{'='*60}")
+        print("SIGNIFICANCE TESTS (paired t-test, Wilcoxon)")
+        print(f"{'='*60}")
+        sig_df = run_significance_tests(agg_df, baseline_config="cox")
+        if not sig_df.empty:
+            sig_df.to_csv(comp_dir / "significance_tests.csv", index=False)
+            print(f"  Saved: {comp_dir / 'significance_tests.csv'}")
+
+            # Print significant results
+            sig_only = sig_df[sig_df["Significant_005"]]
+            if not sig_only.empty:
+                print("\n  Statistically significant differences (p < 0.05):")
+                for _, r in sig_only.iterrows():
+                    direction = "↑" if r["Winner"] != "cox" else "↓"
+                    print(f"    {r['Dataset']} | {r['Metric']}: "
+                          f"{r['Baseline']}: {r['Baseline_mean']:.4f} vs "
+                          f"{r['Compared']}: {r['Compared_mean']:.4f} "
+                          f"(p={r['t_pval']:.4f}, d={r['Cohen_d']:.2f}) {direction}")
+            else:
+                print("  No statistically significant differences found at p < 0.05")
+    else:
+        print("\n  Skipping significance tests (need at least 3 seeds)")
+
+    # Save aggregated results
+    agg_out = agg_df.drop(columns=[c for c in agg_df.columns if c.endswith("_values")], errors='ignore')
+    agg_out.to_csv(comp_dir / "aggregated_results.csv", index=False)
+    print(f"\n  Aggregated results: {comp_dir / 'aggregated_results.csv'}")
+    print(f"\nDone! All outputs in: {comp_dir}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Compare calibration loss experiments")
-    parser.add_argument("--dataset", default=None, help="Filter by dataset name")
-    parser.add_argument("--results-dir", default=None, help="Results directory (default: auto)")
-    args = parser.parse_args()
-
-    results_dir = args.results_dir or str(pt.RESULTS_DIR)
-    df = load_experiment_results(results_dir, dataset_filter=args.dataset)
-
-    if df.empty:
-        print("No experiment results found. Run experiments first.")
-        sys.exit(0)
-
-    # Per-dataset analysis
-    for dataset_name, group in df.groupby("DatasetName"):
-        print(f"\n{'#'*60}")
-        print(f"# Dataset: {dataset_name}")
-        print(f"{'#'*60}")
-
-        print_summary_table(group)
-
-        save_dir = Path(results_dir) / "comparisons"
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        if len(group) >= 2:
-            plot_pareto_frontier(group, save_dir)
-            plot_metric_bars(group, save_dir)
-
-        # Save summary CSV
-        csv_path = save_dir / f"summary_{dataset_name.lower()}.csv"
-        group.to_csv(csv_path, index=False)
-        print(f"  Summary CSV saved: {csv_path}")
+    main()

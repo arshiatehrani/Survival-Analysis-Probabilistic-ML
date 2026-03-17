@@ -1,20 +1,18 @@
 """Calibration-Aware Loss Experiment Script.
 
-Trains one BNN model on one dataset with a configurable loss function.
-Each invocation creates one run in the experiment tracking system.
+Trains one BNN model on one dataset with a configurable loss function and seed.
+Each invocation creates one leaf directory in the hierarchical results structure:
+  results/{experiment_name}/{dataset}/{loss_config}/seed_{seed}/
 
 Usage examples:
-    # Baseline (original Cox PH)
-    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type cox --model mcd1
+    # Baseline (original Cox PH), seed 0
+    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type cox --seed 0
 
-    # CRPS only
-    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type crps --model mcd1
+    # Joint Cox + CRPS with lambda=0.3, seed 3
+    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type joint_crps --lambda-val 0.3 --seed 3
 
-    # Joint Cox + CRPS with lambda=0.3
-    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type joint_crps --lambda-val 0.3
-
-    # Joint Cox + CRPS + marginal KL
-    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type joint_crps_kl --lambda-val 0.3 --mu-val 0.1
+    # Custom experiment name
+    python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type crps --experiment-name calibration_loss_v2
 """
 import sys
 import os
@@ -22,7 +20,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 import argparse
 import copy
+import csv
 import gc
+import json
 import math
 import random
 import numpy as np
@@ -31,6 +31,7 @@ import tensorflow as tf
 from scipy.stats import chisquare
 from pathlib import Path
 from time import time as timer
+from datetime import datetime
 import torch
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -54,19 +55,13 @@ from utility.loss import (CoxPHLoss, CRPSLoss, BrierScoreLoss,
 from tools.baysurv_trainer import Trainer
 from tools.baysurv_builder import make_mcd_model, make_mlp_model, make_sngp_model, make_vi_model
 from tools.evaluator import LifelinesEvaluator
-from tools.results_generator import ResultsGenerator, TeeLogger
+from tools.results_generator import TeeLogger
 from pycox.evaluation import EvalSurv
-from utility.run_manager import RunManager
-from tools.Evaluations.util import make_monotonic, check_monotonicity
-
-np.seterr(divide='ignore', invalid='ignore')
-np.random.seed(0)
-tf.random.set_seed(0)
-random.seed(0)
 
 ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
 ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi"]
-N_GRID_POINTS = 100  # Time grid resolution for CRPS/IBS losses
+N_GRID_POINTS = 100
+
 
 def count_parameters(model):
     try:
@@ -74,47 +69,43 @@ def count_parameters(model):
     except Exception:
         return None
 
+
+def make_loss_config_name(loss_type, lam, mu):
+    """Create a folder-safe name for the loss configuration."""
+    name = loss_type
+    if "joint" in loss_type:
+        name += f"_lam{lam}"
+    if mu > 0:
+        name += f"_mu{mu}"
+    return name
+
+
 def compute_censoring_km(t_train, e_train):
-    """Compute KM estimate of the *censoring* distribution G(t) = P(C > t).
-    Flip events: censoring is the 'event' for G(t)."""
     censoring_indicator = 1 - e_train.astype(int)
     km = KaplanMeier(t_train, censoring_indicator)
     return km.survival_times, km.survival_probabilities
 
+
 def build_time_grid(t_train, n_points=N_GRID_POINTS):
-    """Create a time grid from 0 to max(t_train) with n_points."""
     return np.linspace(0, t_train.max(), n_points).astype(np.float32)
 
+
 def build_loss_function(loss_type, lam, mu, t_train, e_train):
-    """Construct the loss function based on CLI args.
-
-    Returns
-    -------
-    loss_fn : tf.keras.losses.Loss
-    loss_desc : str
-        Human-readable description for metadata.
-    """
     time_grid = build_time_grid(t_train)
-
     if loss_type == "cox":
         return CoxPHLoss(), "CoxPH (baseline)"
-
     elif loss_type == "ibs":
         km_times, km_probs = compute_censoring_km(t_train, e_train)
         return BrierScoreLoss(time_grid, km_times, km_probs), "Integrated Brier Score"
-
     elif loss_type == "crps":
         return CRPSLoss(time_grid), "Right-censored CRPS"
-
     elif loss_type == "joint_ibs":
         km_times, km_probs = compute_censoring_km(t_train, e_train)
         cal = BrierScoreLoss(time_grid, km_times, km_probs)
         return JointCoxCalibrationLoss(cal, lam=lam), f"Joint Cox+IBS (λ={lam})"
-
     elif loss_type == "joint_crps":
         cal = CRPSLoss(time_grid)
         return JointCoxCalibrationLoss(cal, lam=lam), f"Joint Cox+CRPS (λ={lam})"
-
     elif loss_type == "joint_crps_kl":
         cal = CRPSLoss(time_grid)
         km_event = KaplanMeier(t_train, e_train.astype(int))
@@ -122,9 +113,18 @@ def build_loss_function(loss_type, lam, mu, t_train, e_train):
         marg = MarginalCalibrationLoss(time_grid, km_surv_at_grid)
         return (JointCoxCalibrationLoss(cal, lam=lam, marginal_loss=marg, mu=mu),
                 f"Joint Cox+CRPS+KL (λ={lam}, μ={mu})")
-
     else:
         raise ValueError(f"Unknown loss type: {loss_type}")
+
+
+def append_to_runs_index(index_path, row_dict):
+    """Append one row to the master runs_index.csv (thread-safe via append mode)."""
+    file_exists = index_path.exists()
+    with open(index_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(row_dict.keys()))
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row_dict)
 
 
 # ---------------------------------------------------------------------------
@@ -141,25 +141,21 @@ else:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Calibration-aware loss experiment (single model × single dataset)"
+        description="Calibration-aware loss experiment (single model × single dataset × single seed)"
     )
-    parser.add_argument("--dataset", required=True, choices=ALL_DATASETS,
-                        help="Dataset to train on")
-    parser.add_argument("--model", default="mcd1", choices=ALL_MODELS,
-                        help="Model architecture (default: mcd1)")
+    parser.add_argument("--dataset", required=True, choices=ALL_DATASETS)
+    parser.add_argument("--model", default="mcd1", choices=ALL_MODELS)
     parser.add_argument("--loss-type", required=True,
-                        choices=["cox", "ibs", "crps", "joint_ibs", "joint_crps", "joint_crps_kl"],
-                        help="Loss function type")
-    parser.add_argument("--lambda-val", type=float, default=0.3,
-                        help="Lambda for joint losses (default: 0.3)")
-    parser.add_argument("--mu-val", type=float, default=0.0,
-                        help="Mu for marginal KL regularizer (default: 0.0)")
-    parser.add_argument("--epochs", type=int, default=100,
-                        help="Number of epochs (default: 100)")
-    parser.add_argument("--no-early-stop", action="store_true",
-                        help="Disable early stopping")
-    parser.add_argument("--n-samples-test", type=int, default=100,
-                        help="MC samples for evaluation (default: 100)")
+                        choices=["cox", "ibs", "crps", "joint_ibs", "joint_crps", "joint_crps_kl"])
+    parser.add_argument("--lambda-val", type=float, default=0.3)
+    parser.add_argument("--mu-val", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Random seed for data split and model init (default: 0)")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--no-early-stop", action="store_true")
+    parser.add_argument("--n-samples-test", type=int, default=100)
+    parser.add_argument("--experiment-name", type=str, default=None,
+                        help="Experiment session name (default: auto-generated with date)")
     args = parser.parse_args()
 
     dataset_name = args.dataset
@@ -167,31 +163,35 @@ if __name__ == "__main__":
     loss_type = args.loss_type
     lam = args.lambda_val
     mu = args.mu_val
+    seed = args.seed
     N_EPOCHS = args.epochs
     DISABLE_EARLY_STOP = args.no_early_stop
 
-    # ---- Run Manager ----
-    run_tag = f"{loss_type}"
-    if "joint" in loss_type:
-        run_tag += f"_lam{lam}"
-    if mu > 0:
-        run_tag += f"_mu{mu}"
+    # ---- Set all random seeds ----
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    random.seed(seed)
 
-    run = RunManager(
-        base_results_dir=pt.RESULTS_DIR,
-        script_name="exp_calibration_loss.py",
-        datasets=[dataset_name],
-        models=[model_name],
-        cli_args=vars(args),
-    )
-    logger = TeeLogger.start(run.run_dir / "experiment_log.txt")
+    # ---- Build directory structure ----
+    loss_config_name = make_loss_config_name(loss_type, lam, mu)
+    if args.experiment_name:
+        experiment_name = args.experiment_name
+    else:
+        experiment_name = datetime.now().strftime("%Y%m%d") + "_calibration_loss"
+
+    experiment_dir = Path(pt.RESULTS_DIR) / experiment_name
+    seed_dir = experiment_dir / dataset_name / loss_config_name / f"seed_{seed}"
+    models_dir = seed_dir / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+
+    logger = TeeLogger.start(seed_dir / "experiment_log.txt")
 
     print(f"{'='*60}")
     print(f"Calibration-Aware Loss Experiment")
     print(f"  Loss: {loss_type} | λ={lam} | μ={mu}")
-    print(f"  Dataset: {dataset_name} | Model: {model_name}")
+    print(f"  Dataset: {dataset_name} | Model: {model_name} | Seed: {seed}")
     print(f"  Epochs: {N_EPOCHS} | Early stop: {not DISABLE_EARLY_STOP}")
-    print(f"  Run dir: {run.run_dir}")
+    print(f"  Output: {seed_dir}")
     print(f"{'='*60}")
 
     # ---- Load Config ----
@@ -209,7 +209,7 @@ if __name__ == "__main__":
     n_samples_valid = config['n_samples_valid']
     n_samples_test = args.n_samples_test
 
-    # ---- Load & Split Data ----
+    # ---- Load & Split Data (seed controls the split) ----
     dl = get_data_loader(dataset_name).load_data()
     num_features, cat_features = dl.get_features()
     df = dl.get_data()
@@ -217,7 +217,7 @@ if __name__ == "__main__":
 
     df_train, df_valid, df_test = make_stratified_split(
         df, stratify_colname='both', frac_train=0.7,
-        frac_valid=0.1, frac_test=0.2, random_state=0
+        frac_valid=0.1, frac_test=0.2, random_state=seed
     )
     X_train = df_train[cat_features + num_features]
     X_valid = df_valid[cat_features + num_features]
@@ -289,7 +289,7 @@ if __name__ == "__main__":
         n_samples_valid=n_samples_valid,
         n_samples_test=n_samples_test,
         use_wandb=False,
-        checkpoint_dir=run.models_dir,
+        checkpoint_dir=models_dir,
     )
     train_start = timer()
     trainer.train_and_evaluate()
@@ -299,7 +299,7 @@ if __name__ == "__main__":
     print(f"\n  Trained in {train_time:.2f}s (best epoch: {best_ep})")
 
     # ---- Restore Best Checkpoint ----
-    trainer.checkpoint.restore(run.models_dir / f"ckpt-{best_ep}")
+    trainer.checkpoint.restore(models_dir / f"ckpt-{best_ep}")
     model = trainer.model
 
     # ---- Evaluate ----
@@ -370,7 +370,7 @@ if __name__ == "__main__":
     # ---- Print Results ----
     dcal_str = f"{d_calib:.4f}" if d_calib > 0.05 else f"{d_calib:.4f}*"
     print(f"\n{'='*60}")
-    print(f"RESULTS: {dataset_name} | {model_name} | {loss_desc}")
+    print(f"RESULTS: {dataset_name} | {model_name} | {loss_desc} | seed={seed}")
     print(f"  CI:     {ci:.4f}")
     print(f"  IBS:    {ibs:.4f}")
     print(f"  D-Cal:  {dcal_str}")
@@ -389,44 +389,55 @@ if __name__ == "__main__":
         "DCalib": d_calib, "CCalib": c_calib, "ICI": ici,
         "KM": km_mse, "INBLL": inbll,
     }
+
+    # Save per-seed metrics
     res_df = pd.DataFrame([metrics_dict])
     res_df["ModelName"] = model_name
     res_df["DatasetName"] = dataset_name
     res_df["LossType"] = loss_type
+    res_df["LossConfig"] = loss_config_name
     res_df["Lambda"] = lam
     res_df["Mu"] = mu
+    res_df["Seed"] = seed
     res_df["TrainTime"] = train_time
     res_df["TestTime"] = test_time
     res_df["BestEpoch"] = best_ep
-    res_df.to_csv(run.run_dir / "experiment_results.csv", index=False)
+    res_df.to_csv(seed_dir / "metrics.csv", index=False)
 
-    # Save model weights
-    weights_dir = run.models_dir / f"{dataset_name.lower()}_{model_name.lower()}"
-    weights_dir.mkdir(parents=True, exist_ok=True)
-    model.save_weights(weights_dir / "weights.weights.h5")
-    print(f"  Model saved: {weights_dir}")
-
-    # ---- Log Run Metadata ----
-    model_config = {
+    # Save config
+    run_config = {
+        "experiment_name": experiment_name,
+        "dataset": dataset_name, "model": model_name,
+        "loss_type": loss_type, "loss_desc": loss_desc,
+        "loss_config": loss_config_name,
+        "lambda": lam, "mu": mu, "seed": seed,
+        "epochs": N_EPOCHS, "early_stop": early_stop,
+        "patience": patience, "batch_size": batch_size,
         "network_layers": layers, "activation_fn": activation_fn,
         "dropout_rate": dropout_rate, "l2_reg": l2_reg,
-        "batch_size": batch_size,
         "learning_rate": float(optimizer.learning_rate.numpy()),
-        "loss_type": loss_type, "loss_desc": loss_desc,
-        "lambda": lam, "mu": mu,
+        "n_params": n_params if n_params else 0,
+        "best_epoch": best_ep,
+        "early_stopped": early_stop and (best_ep < N_EPOCHS),
+        "train_time_s": round(train_time, 2),
+        "test_time_s": round(test_time, 2),
+        "timestamp": datetime.now().isoformat(),
     }
-    run.log_model_result(
-        dataset_name, model_name,
-        config=model_config,
-        metrics=metrics_dict,
-        extra={
-            "n_params": n_params if n_params else 0,
-            "best_epoch": best_ep,
-            "early_stopped": early_stop and (best_ep < N_EPOCHS),
-            "train_time_s": round(train_time, 2),
-            "test_time_s": round(test_time, 2),
-        }
-    )
+    with open(seed_dir / "config.json", "w") as f:
+        json.dump(run_config, f, indent=2)
+
+    # Append to master runs_index.csv
+    index_row = {**metrics_dict, **{
+        "DatasetName": dataset_name, "ModelName": model_name,
+        "LossType": loss_type, "LossConfig": loss_config_name,
+        "Lambda": lam, "Mu": mu, "Seed": seed,
+        "BestEpoch": best_ep, "TrainTime": round(train_time, 2),
+        "TestTime": round(test_time, 2),
+        "Path": str(seed_dir),
+    }}
+    append_to_runs_index(experiment_dir / "runs_index.csv", index_row)
+
+    print(f"  Results: {seed_dir / 'metrics.csv'}")
 
     # ---- Cleanup ----
     del trainer.checkpoint, trainer.manager
@@ -435,4 +446,3 @@ if __name__ == "__main__":
     gc.collect()
 
     logger.close()
-    run.finalize()
