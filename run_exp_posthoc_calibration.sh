@@ -16,9 +16,22 @@
 # applies Temperature Scaling + Isotonic Regression.
 # NO RETRAINING — only inference + calibration fitting.
 #
-# Usage:
-#   SOURCE_EXPERIMENT=20260316_calibration_loss sbatch run_exp_posthoc_calibration.sh
-#   SOURCE_EXPERIMENT=20260316_calibration_loss DATASET=SUPPORT sbatch run_exp_posthoc_calibration.sh
+# Usage examples:
+#
+#   METABRIC (checkpoints from March 16 run):
+#     SOURCE_EXPERIMENT=20260316_calibration_loss DATASET=METABRIC sbatch run_exp_posthoc_calibration.sh
+#
+#   SUPPORT (checkpoints from March 17 run):
+#     SOURCE_EXPERIMENT=20260317_calibration_loss DATASET=SUPPORT sbatch run_exp_posthoc_calibration.sh
+#
+#   Both datasets at once (same source experiment):
+#     SOURCE_EXPERIMENT=20260316_calibration_loss DATASET="METABRIC SUPPORT" sbatch run_exp_posthoc_calibration.sh
+#
+#   Custom output name / fewer seeds:
+#     SOURCE_EXPERIMENT=20260316_calibration_loss DATASET=METABRIC SEEDS="0 1 2" EXPERIMENT_NAME=posthoc_test sbatch run_exp_posthoc_calibration.sh
+#
+#   Only specific loss configs:
+#     SOURCE_EXPERIMENT=20260316_calibration_loss DATASET=METABRIC LOSS_CONFIGS="cox crps" sbatch run_exp_posthoc_calibration.sh
 ######################################################################
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
