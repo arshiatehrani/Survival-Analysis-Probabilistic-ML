@@ -14,6 +14,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import argparse
+import atexit
 import copy
 import gc
 import json
@@ -353,6 +354,7 @@ if __name__ == "__main__":
     print(f"\n  Results: {out_dir / 'posthoc_metrics.csv'}")
 
     # ---- Cleanup ----
+    del ckpt  # delete checkpoint object to avoid __del__ error
     del model
     tf.keras.backend.clear_session()
     gc.collect()
