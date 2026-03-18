@@ -125,12 +125,13 @@ if __name__ == "__main__":
         frac_valid=0.1, frac_test=0.2, random_state=seed
     )
     X_train = df_train[cat_features + num_features]
+    X_valid = df_valid[cat_features + num_features]
     X_test = df_test[cat_features + num_features]
 
     y_train = convert_to_structured(df_train["time"], df_train["event"])
     y_test = convert_to_structured(df_test["time"], df_test["event"])
 
-    X_train, _, X_test = scale_data(X_train, X_valid=None, X_test=X_test, 
+    X_train, _, X_test = scale_data(X_train, X_valid=X_valid, X_test=X_test, 
                                      cat_features=cat_features, num_features=num_features)
     X_train = np.array(X_train)
     X_test = np.array(X_test)
