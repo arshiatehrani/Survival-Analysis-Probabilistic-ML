@@ -26,7 +26,7 @@ from pathlib import Path
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', message='.*add_variable.*deprecated.*')
-warnings.filterwarnings('ignore', message='.*RandomNormal is unseeded.*')
+
 
 # Monkey-patch: scipy >= 1.14 removed simps, but pycox still uses it
 import scipy.integrate
