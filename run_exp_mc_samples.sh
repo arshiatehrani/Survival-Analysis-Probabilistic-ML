@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=mc_samples
-#SBATCH --time=0-06:00:00
+#SBATCH --time=0-02:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
 #SBATCH --mail-type=ALL
 #SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
-#SBATCH --cpus-per-task=6
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=32G
 #SBATCH --output=slurm-%j.out
 ######################################################################
