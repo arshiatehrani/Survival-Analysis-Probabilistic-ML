@@ -273,9 +273,45 @@ def make_sngp_model(input_shape, output_dim, layers, activation_fn, dropout_rate
                                           gp_cov_momentum=-1)(hidden)
     model = tf.keras.Model(inputs=inputs, outputs=output)
     
+    
+def make_transformer_mcd_model(input_shape, output_dim, layers, activation_fn, dropout_rate, regularization_pen):
+    inputs = tf.keras.layers.Input(shape=input_shape)
+    embed_dim = layers[0] if layers else 32
+    depth = len(layers) if layers else 3
+    num_heads = 4
+    
+    # Feature Tokenization (batch, features, 1) -> (batch, features, embed_dim)
+    x = tf.expand_dims(inputs, axis=-1)
+    if regularization_pen is not None:
+        x = tf.keras.layers.Dense(embed_dim, activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(x)
+    else:
+        x = tf.keras.layers.Dense(embed_dim)(x)
+        
+    for i in range(depth):
+        # Self-Attention Block
+        attn_out = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim//num_heads)(x, x)
+        attn_out = MonteCarloDropout(dropout_rate)(attn_out)
+        x = tf.keras.layers.Add()([x, attn_out])
+        x = tf.keras.layers.LayerNormalization()(x)
+        
+        # Feed-Forward Block
+        if regularization_pen is not None:
+            ffn_out = tf.keras.layers.Dense(embed_dim, activation=activation_fn, activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(x)
+        else:
+            ffn_out = tf.keras.layers.Dense(embed_dim, activation=activation_fn)(x)
+        ffn_out = tf.keras.layers.Dense(embed_dim)(ffn_out)
+        ffn_out = MonteCarloDropout(dropout_rate)(ffn_out)
+        x = tf.keras.layers.Add()([x, ffn_out])
+        x = tf.keras.layers.LayerNormalization()(x)
+        
+    # Global Mean Pooling
+    x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    
+    if output_dim == 2:
+        params = tf.keras.layers.Dense(output_dim)(x)
+        model = tf.keras.Model(inputs=inputs, outputs=params)
+    else:
+        output = tf.keras.layers.Dense(output_dim, activation="linear")(x)
+        model = tf.keras.Model(inputs=inputs, outputs=output)
     return model
     
-    
-    
-        
-                        
