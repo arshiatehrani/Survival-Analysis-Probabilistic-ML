@@ -54,7 +54,7 @@ def load_and_aggregate_results(exp_dir, dataset=None):
     
     # Calculate Mean and Std across seeds for each group
     agg_funcs = {col: ["mean", "std"] for col in metric_cols}
-    agg_funcs["Seed"] = "count" # track n_seeds
+    agg_funcs["Seed"] = ["count"] # track n_seeds
     
     agg_df = full_df.groupby(group_cols).agg(agg_funcs).reset_index()
     

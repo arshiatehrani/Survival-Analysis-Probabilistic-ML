@@ -163,8 +163,8 @@ if __name__ == "__main__":
     # Warmup pass (TensorFlow compilation can take a while)
     print("  Warming up TF graph...")
     _ = compute_nondeterministic_survival_curve(
-        model, X_train[:5], X_test[:5], e_train, t_train, event_times,
-        n_samples_train, n_samples_test=5
+        model, X_train, X_test[:5], e_train, t_train, event_times,
+        1, n_samples_test=1
     )
 
     results = []
@@ -214,8 +214,3 @@ if __name__ == "__main__":
     results_df = pd.DataFrame(results)
     results_df.to_csv(out_dir / "mc_efficiency_metrics.csv", index=False)
     print(f"\n  Saved {len(results)} rows to {out_dir / 'mc_efficiency_metrics.csv'}")
-
-    del ckpt
-    del model
-    tf.keras.backend.clear_session()
-    gc.collect()
