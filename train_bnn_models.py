@@ -8,7 +8,9 @@ import tensorflow as tf
 def _cleanup_tf():
     """Clear TF session before exit to avoid _CheckpointRestoreCoordinatorDeleter TypeError."""
     try:
+        import sys, os
         tf.keras.backend.clear_session()
+        sys.stderr = open(os.devnull, 'w')
     except Exception:
         pass
     gc.collect()
