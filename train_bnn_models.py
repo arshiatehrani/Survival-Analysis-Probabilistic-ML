@@ -64,7 +64,7 @@ tf.random.set_seed(0)
 random.seed(0)
 
 ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
-ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi"]
+ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi", "transformer_mcd"]
 N_EPOCHS = 100
 
 def count_parameters(model):
