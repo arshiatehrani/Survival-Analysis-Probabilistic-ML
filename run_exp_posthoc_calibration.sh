@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=posthoc_cal
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-06:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
