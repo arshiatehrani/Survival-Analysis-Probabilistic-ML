@@ -281,7 +281,7 @@ def make_transformer_mcd_model(input_shape, output_dim, layers, activation_fn, d
     num_heads = 4
     
     # Feature Tokenization (batch, features, 1) -> (batch, features, embed_dim)
-    x = tf.expand_dims(inputs, axis=-1)
+    x = tf.keras.layers.Reshape((input_shape[0], 1))(inputs)
     if regularization_pen is not None:
         x = tf.keras.layers.Dense(embed_dim, activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(x)
     else:
