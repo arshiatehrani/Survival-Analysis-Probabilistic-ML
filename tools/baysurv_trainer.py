@@ -218,12 +218,14 @@ class Trainer:
         if len(batch_variances) > 0:
             self.valid_variance.append(float(np.mean(batch_variances)))
 
+        # Track best validation loss regardless of early stopping
+        current_valid_nll = self.valid_nll[-1]
+        if self.best_valid_nll > current_valid_nll:
+            self.best_valid_nll = current_valid_nll
+            self.best_ep = epoch
+
         # Early stopping
         if self.early_stop:
-            current_valid_nll = self.valid_nll[-1]
-            if self.best_valid_nll > current_valid_nll:
-                self.best_valid_nll = current_valid_nll
-                self.best_ep = epoch
             if (epoch - self.best_ep) > self.patience:
                 print(f"\n  Early stop at epoch {self.best_ep}, val_loss={float(self.best_valid_nll):.4f}")
                 stop_training = True
