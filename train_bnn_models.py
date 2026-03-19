@@ -1,16 +1,20 @@
-import atexit, gc
+import sys, atexit, gc
 import scipy.integrate
 if not hasattr(scipy.integrate, 'simps'):
     scipy.integrate.simps = scipy.integrate.simpson
 
+# Supress harmless but annoying TF Checkpoint teardown tracebacks
+def _silence_tf_unraisable(unraisable):
+    if "NoneType" in str(unraisable.exc_value) and "_CheckpointRestoreCoordinatorDeleter" in str(getattr(unraisable, "object", "")):
+        return
+    sys.__unraisablehook__(unraisable)
+sys.unraisablehook = _silence_tf_unraisable
+
 import tensorflow as tf
 
 def _cleanup_tf():
-    """Clear TF session before exit to avoid _CheckpointRestoreCoordinatorDeleter TypeError."""
     try:
-        import sys, os
         tf.keras.backend.clear_session()
-        sys.stderr = open(os.devnull, 'w')
     except Exception:
         pass
     gc.collect()
