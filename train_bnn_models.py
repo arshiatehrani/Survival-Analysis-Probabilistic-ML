@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt; plt.style.use(matplotlib_style)
 from tools.baysurv_trainer import Trainer
 from utility.config import load_config
 from utility.training import get_data_loader, scale_data, split_time_event
-from tools.baysurv_builder import make_mlp_model, make_vi_model, make_mcd_model, make_sngp_model, make_transformer_mcd_model
+from tools.baysurv_builder import make_mlp_model, make_vi_model, make_mcd_model, make_sngp_model, make_transformer_mcd_model, make_saint_mcd_model
 from utility.risk import InputFunction
 from utility.loss import CoxPHLoss, CoxPHLossGaussian
 from pathlib import Path
@@ -70,7 +70,7 @@ tf.random.set_seed(0)
 random.seed(0)
 
 ALL_DATASETS = ["SUPPORT", "SEER", "METABRIC", "MIMIC"]
-ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi", "transformer_mcd"]
+ALL_MODELS = ["mlp", "sngp", "mcd1", "mcd2", "mcd3", "vi", "transformer_mcd", "saint_mcd"]
 N_EPOCHS = 100
 
 def count_parameters(model):
@@ -317,6 +317,11 @@ if __name__ == "__main__":
                 model = make_transformer_mcd_model(input_shape=X_train.shape[1:], output_dim=2,
                                                    layers=layers, activation_fn=activation_fn,
                                                    dropout_rate=dropout_rate, regularization_pen=l2_reg)
+            elif model_name == "saint_mcd":
+                dropout_rate = config['dropout_rate']
+                model = make_saint_mcd_model(input_shape=X_train.shape[1:], output_dim=2,
+                                             layers=layers, activation_fn=activation_fn,
+                                             dropout_rate=dropout_rate, regularization_pen=l2_reg)
             else:
                 raise ValueError("Model not found")
             

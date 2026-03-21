@@ -314,4 +314,70 @@ def make_transformer_mcd_model(input_shape, output_dim, layers, activation_fn, d
         output = tf.keras.layers.Dense(output_dim, activation="linear")(x)
         model = tf.keras.Model(inputs=inputs, outputs=output)
     return model
+
+def make_saint_mcd_model(input_shape, output_dim, layers, activation_fn, dropout_rate, regularization_pen):
+    inputs = tf.keras.layers.Input(shape=input_shape)
+    embed_dim = layers[0] if layers else 32
+    depth = len(layers) if layers else 3
+    num_heads = 4
+    
+    # Feature Tokenization (batch, features, 1) -> (batch, features, embed_dim)
+    x = tf.keras.layers.Reshape((input_shape[0], 1))(inputs)
+    if regularization_pen is not None:
+        x = tf.keras.layers.Dense(embed_dim, activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(x)
+    else:
+        x = tf.keras.layers.Dense(embed_dim)(x)
+        
+    for i in range(depth):
+        # 1. Feature-wise Self-Attention
+        attn_out = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim//num_heads)(x, x)
+        attn_out = MonteCarloDropout(dropout_rate)(attn_out)
+        x = tf.keras.layers.Add()([x, attn_out])
+        x = tf.keras.layers.LayerNormalization()(x)
+        
+        # 2. Feature-wise Feed-Forward
+        if regularization_pen is not None:
+            ffn_out = tf.keras.layers.Dense(embed_dim, activation=activation_fn, activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(x)
+        else:
+            ffn_out = tf.keras.layers.Dense(embed_dim, activation=activation_fn)(x)
+        ffn_out = tf.keras.layers.Dense(embed_dim)(ffn_out)
+        ffn_out = MonteCarloDropout(dropout_rate)(ffn_out)
+        x = tf.keras.layers.Add()([x, ffn_out])
+        x = tf.keras.layers.LayerNormalization()(x)
+        
+        # 3. Intersample Attention
+        def transpose_for_intersample(tensor):
+            return tf.transpose(tensor, perm=[1, 0, 2])
+        x_trans = tf.keras.layers.Lambda(transpose_for_intersample)(x)
+        
+        attn_i_trans = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim//num_heads)(x_trans, x_trans)
+        
+        def transpose_back(tensor):
+            return tf.transpose(tensor, perm=[1, 0, 2])
+        attn_i = tf.keras.layers.Lambda(transpose_back)(attn_i_trans)
+        
+        attn_i = MonteCarloDropout(dropout_rate)(attn_i)
+        x = tf.keras.layers.Add()([x, attn_i])
+        x = tf.keras.layers.LayerNormalization()(x)
+        
+        # 4. Intersample Feed-Forward
+        if regularization_pen is not None:
+            ffn_out_i = tf.keras.layers.Dense(embed_dim, activation=activation_fn, activity_regularizer=tf.keras.regularizers.L2(regularization_pen))(x)
+        else:
+            ffn_out_i = tf.keras.layers.Dense(embed_dim, activation=activation_fn)(x)
+        ffn_out_i = tf.keras.layers.Dense(embed_dim)(ffn_out_i)
+        ffn_out_i = MonteCarloDropout(dropout_rate)(ffn_out_i)
+        x = tf.keras.layers.Add()([x, ffn_out_i])
+        x = tf.keras.layers.LayerNormalization()(x)
+
+    # Global Mean Pooling
+    x = tf.keras.layers.GlobalAveragePooling1D()(x)
+    
+    if output_dim == 2:
+        params = tf.keras.layers.Dense(output_dim)(x)
+        model = tf.keras.Model(inputs=inputs, outputs=params)
+    else:
+        output = tf.keras.layers.Dense(output_dim, activation="linear")(x)
+        model = tf.keras.Model(inputs=inputs, outputs=output)
+    return model
     
