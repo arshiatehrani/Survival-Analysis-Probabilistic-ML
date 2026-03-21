@@ -180,5 +180,6 @@ else
   echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
   # python train_bnn_models.py --datasets SUPPORT --models transformer_mcd
   python train_bnn_models.py --datasets METABRIC SUPPORT --models saint_mcd
+fi
 
 echo "Job finished on $(date)"
