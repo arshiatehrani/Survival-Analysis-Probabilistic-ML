@@ -93,13 +93,13 @@ class Trainer:
         t_total = self.train_total[-1] if self.train_total else 0.0
         t_reg = self.train_kl[-1] if self.train_kl else 0.0
         t_nll = self.train_nll[-1] if self.train_nll else 0.0
-        parts = f"Train: Total={t_total:.4f}, Reg={t_reg:.4f}, nll={t_nll:.4f}"
+        parts = f"Train: Total={t_total:.4f}, Reg={t_reg:.4f}, Loss={t_nll:.4f}"
         if self.train_variance:
             parts += f" var={self.train_variance[-1]:.4f}"
         if self.valid_total:
-            parts += f"; Val: Total={self.valid_total[-1]:.4f}, Reg={self.valid_kl[-1]:.4f}, nll={self.valid_nll[-1]:.4f}"
-            if self.valid_variance:
-                parts += f" var={self.valid_variance[-1]:.4f}"
+            parts += f"; Val: Total={self.valid_total[-1]:.4f}, Reg={self.valid_kl[-1]:.4f}, Loss={self.valid_nll[-1]:.4f}"
+        if self.valid_variance:
+            parts += f" var={self.valid_variance[-1]:.4f}"
         msg = f"  [{bar}] {epoch}/{self.num_epochs} {parts}"
         # TTY: in-place \r updates. Non-TTY (Slurm/TeeLogger): one line per epoch.
         is_tty = getattr(sys.stdout, "isatty", lambda: False)()
