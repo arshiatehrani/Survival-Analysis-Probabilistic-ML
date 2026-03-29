@@ -303,6 +303,11 @@ python train_bnn_models.py --wandb --wandb-project my-experiment
 # Edit run_baysurv_job.sh: GPU block (MIG 1g/2g/3g or full H100), PROJECT_DIR
 sbatch run_baysurv_job.sh
 
+# Subset of datasets (space-separated; default = all four):
+#   export DATASETS="SEER MIMIC"
+#   sbatch run_baysurv_job.sh
+#   # or: sbatch --export=ALL,DATASETS="SEER MIMIC" run_baysurv_job.sh
+
 # Monitor progress (tail interprets \r for in-place updates)
 tail -f slurm-*.out
 ```

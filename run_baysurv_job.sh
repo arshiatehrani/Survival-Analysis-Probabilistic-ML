@@ -112,8 +112,15 @@ mkdir -p models results
 #
 # Datasets: SUPPORT, SEER, METABRIC, MIMIC
 #
-# WITHOUT any arguments, BOTH scripts train ALL their models on ALL datasets.
-# Use --datasets and --models to select subsets.
+# Set DATASETS (space-separated) to train on a subset; default is all four.
+# Examples:
+#   export DATASETS="SEER MIMIC"
+#   sbatch run_baysurv_job.sh
+#   sbatch --export=ALL,DATASETS="SEER MIMIC" run_baysurv_job.sh
+#
+# DEBUG_MODE=1 and TUNE_MODE=1 still use SUPPORT only (fast / tuning paths).
+#
+# If DATASETS is unset, default is all four datasets above.
 # Add --wandb to enable experiment tracking (requires WANDB_API_KEY above).
 #
 # Examples - run specific models/datasets:
@@ -164,6 +171,10 @@ echo "TUNE_MODE=$TUNE_MODE (0=pre-tuned, 1=Bayesian optimization)"
 DEBUG_MODE=${DEBUG_MODE:-0}
 echo "DEBUG_MODE=$DEBUG_MODE | TUNE_MODE=$TUNE_MODE"
 
+# Paper reproduction datasets (both train_sota_models.py and train_bnn_models.py)
+DATASETS="${DATASETS:-SUPPORT SEER METABRIC MIMIC}"
+echo "DATASETS=$DATASETS"
+
 if [ "$DEBUG_MODE" = "1" ]; then
   echo ">>> DEBUG: Running MLP on SUPPORT at $(date)"
   python train_bnn_models.py --datasets SUPPORT --models mlp
@@ -172,10 +183,10 @@ elif [ "$TUNE_MODE" = "1" ]; then
   python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10
 else
   echo "Starting train_sota_models.py at $(date)"
-  python train_sota_models.py
+  python train_sota_models.py --datasets $DATASETS
 
   echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
-  python train_bnn_models.py
+  python train_bnn_models.py --datasets $DATASETS
 fi
 
 echo "Job finished on $(date)"
