@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from lifelines.utils import CensoringType
 from lifelines.fitters import RegressionFitter
 from lifelines import CRCSplineFitter
+from lifelines.exceptions import ConvergenceError as LifelinesConvergenceError
 import warnings
 import torch
 import math
@@ -314,22 +315,46 @@ def survival_probability_calibration(surv_preds: pd.DataFrame,
     # create new dataset with the predictions
     prediction_df = pd.DataFrame({"ccl_at_%d" % t0: ccl(predictions_at_t0), T: times, E: events})
 
-    # fit new dataset to flexible spline model
-    # this new model connects prediction probabilities and actual survival. It should be very flexible, almost to the point of overfitting. It's goal is just to smooth out the data!
-    knots = 3
+    # Fit flexible spline (Royston–Crowther–Clements style); may fail on large / noisy cohorts.
     regressors = {"beta_": ["ccl_at_%d" % t0], "gamma0_": "1", "gamma1_": "1", "gamma2_": "1"}
+    crc = None
+    last_err: Optional[Exception] = None
+    # Stronger penalizer improves numerical stability (e.g. MIMIC); keep knots=3 for regressors shape.
+    fit_tries = [(3, 1e-6), (3, 1e-3), (3, 1e-1), (3, 1.0), (3, 10.0), (3, 100.0)]
+    for knots, penalizer in fit_tries:
+        crc_try = CRCSplineFitter(knots, penalizer=penalizer)
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore")
+                crc_try.fit_right_censoring(prediction_df, T, E, regressors=regressors)
+            crc = crc_try
+            break
+        except LifelinesConvergenceError as e:
+            last_err = e
 
-    # this model is from examples/royson_crowther_clements_splines.py
-    crc = CRCSplineFitter(knots, penalizer=0.000001)
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore")
-        crc.fit_right_censoring(prediction_df, T, E, regressors=regressors) # only support right-censoring for now
-
-    # predict new model at values 0 to 1, but remember to ccl it!
-    x = np.linspace(np.clip(predictions_at_t0.min() - 0.01, 0, 1), np.clip(predictions_at_t0.max() + 0.01, 0, 1), 100)
-    y = 1 - crc.predict_survival_function(pd.DataFrame({"ccl_at_%d" % t0: ccl(x)}), times=[t0]).T.squeeze()
-
-    deltas = ((1 - crc.predict_survival_function(prediction_df, times=[t0])).T.squeeze() - predictions_at_t0).abs()
+    x = np.linspace(
+        np.clip(predictions_at_t0.min() - 0.01, 0, 1),
+        np.clip(predictions_at_t0.max() + 0.01, 0, 1),
+        100,
+    )
+    if crc is not None:
+        y = 1 - crc.predict_survival_function(
+            pd.DataFrame({"ccl_at_%d" % t0: ccl(x)}), times=[t0]
+        ).T.squeeze()
+        deltas = (
+            (1 - crc.predict_survival_function(prediction_df, times=[t0])).T.squeeze()
+            - predictions_at_t0
+        ).abs()
+    else:
+        warnings.warn(
+            "CRC spline calibration did not converge (t0=%s); last error: %s. "
+            "Using identity calibration curve and zero per-sample residuals (ICI uninformative for this horizon)."
+            % (t0, last_err),
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        y = np.clip(x, 0.0, 1.0)
+        deltas = np.zeros_like(predictions_at_t0, dtype=float)
     
     return x, y, predictions_at_t0, deltas
 
