@@ -4,6 +4,7 @@ import numpy as np
 import paths as pt
 from utility.loss import CoxPHLoss, CoxPHLossGaussian
 from utility.loss import CRPSLoss, BrierScoreLoss, JointCoxCalibrationLoss, MarginalCalibrationLoss
+from utility.loss import CRPSLossPerSample, BrierScoreLossPerSample, JointCoxCalibrationLossPerSample
 
 class Trainer:
     def __init__(self, model, model_name, train_dataset, valid_dataset,
@@ -49,7 +50,8 @@ class Trainer:
         # Calibration-aware losses need label_time in y_true
         self._loss_needs_time = isinstance(
             self.loss_fn,
-            (CRPSLoss, BrierScoreLoss, JointCoxCalibrationLoss, MarginalCalibrationLoss)
+            (CRPSLoss, BrierScoreLoss, JointCoxCalibrationLoss, MarginalCalibrationLoss,
+             CRPSLossPerSample, BrierScoreLossPerSample, JointCoxCalibrationLossPerSample)
         )
 
     def _regularization_term(self):

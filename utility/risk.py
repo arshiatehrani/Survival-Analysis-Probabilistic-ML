@@ -107,6 +107,35 @@ class InputFunction:
     def __call__(self) -> tf.data.Dataset:
         return self._make_dataset()
 
+class WeightedInputFunction(InputFunction):
+    """InputFunction that also carries per-sample weights through the pipeline.
+
+    Used by UncertaintyTrainer to pass uncertainty-derived importance weights
+    alongside each batch, correctly aligned even after shuffling.
+    """
+
+    def __init__(self, data, time, event, sample_weights,
+                 batch_size=32, drop_last=False, shuffle=False, seed=0):
+        super().__init__(data, time, event, batch_size, drop_last, shuffle, seed)
+        self.sample_weights = sample_weights.astype(np.float32)
+
+    def _get_data_batch(self, index):
+        data, labels = super()._get_data_batch(index)
+        labels["sample_weights"] = self.sample_weights[index]
+        return data, labels
+
+    def _get_shapes(self):
+        rows, labels = super()._get_shapes()
+        batch_size = self.batch_size if self.drop_last else None
+        labels["sample_weights"] = tf.TensorShape((batch_size,))
+        return rows, labels
+
+    def _get_dtypes(self):
+        data_dtype, labels = super()._get_dtypes()
+        labels["sample_weights"] = tf.float32
+        return data_dtype, labels
+
+
 def _make_riskset(time: np.ndarray) -> np.ndarray:
     """Compute mask that represents each sample's risk set.
 

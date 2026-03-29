@@ -555,3 +555,103 @@ class JointCoxCalibrationLoss(tf.keras.losses.Loss):
             total = total + self.mu * marg
 
         return total
+
+
+# ---------------------------------------------------------------------------
+# Per-Sample (Unreduced) Loss Variants for Uncertainty-Aware Training
+# ---------------------------------------------------------------------------
+
+class CRPSLossPerSample(tf.keras.losses.Loss):
+    """Right-censored CRPS returning per-sample losses (no reduction).
+
+    Identical maths to CRPSLoss but returns shape (batch,) instead of scalar.
+    """
+
+    def __init__(self, time_grid_np, **kwargs):
+        super().__init__(**kwargs)
+        self.time_grid = tf.constant(time_grid_np, dtype=tf.float32)
+        dt = np.diff(time_grid_np, prepend=0.0)
+        self.dt = tf.constant(dt, dtype=tf.float32)
+
+    def call(self, y_true, y_pred):
+        event = y_true[0]
+        time = y_true[2]
+        event_f = tf.cast(tf.reshape(event, [-1]), tf.float32)
+        time_f = tf.cast(tf.reshape(time, [-1]), tf.float32)
+
+        surv = breslow_survival_tf(y_pred, event, time, self.time_grid)
+
+        before_obs = tf.cast(
+            tf.expand_dims(self.time_grid, 0) < tf.expand_dims(time_f, 1), tf.float32
+        )
+        after_obs = 1.0 - before_obs
+
+        term1 = (1.0 - surv) ** 2 * before_obs * self.dt
+        term2 = surv ** 2 * after_obs * self.dt
+        term2 = term2 * tf.expand_dims(event_f, 1)
+
+        crps_per_sample = tf.reduce_sum(term1 + term2, axis=1)
+        return crps_per_sample  # (batch,)
+
+
+class BrierScoreLossPerSample(tf.keras.losses.Loss):
+    """IPCW Integrated Brier Score returning per-sample losses (no reduction).
+
+    Identical maths to BrierScoreLoss but returns shape (batch,) instead of scalar.
+    """
+
+    def __init__(self, time_grid_np, km_times_np, km_surv_np, **kwargs):
+        super().__init__(**kwargs)
+        self.time_grid = tf.constant(time_grid_np, dtype=tf.float32)
+        self.km_times = tf.constant(km_times_np, dtype=tf.float32)
+        self.km_surv = tf.constant(km_surv_np, dtype=tf.float32)
+
+    def _G(self, t):
+        idx = tf.searchsorted(self.km_times, t, side='right')
+        idx = tf.clip_by_value(idx, 1, tf.shape(self.km_surv)[0]) - 1
+        return tf.maximum(tf.gather(self.km_surv, idx), 1e-8)
+
+    def call(self, y_true, y_pred):
+        event = y_true[0]
+        time = y_true[2]
+        event_f = tf.cast(tf.reshape(event, [-1]), tf.float32)
+        time_f = tf.cast(tf.reshape(time, [-1]), tf.float32)
+
+        surv = breslow_survival_tf(y_pred, event, time, self.time_grid)
+
+        G_Ti = self._G(time_f)
+        G_tk = self._G(self.time_grid)
+
+        died_before = tf.cast(
+            tf.expand_dims(time_f, 1) <= tf.expand_dims(self.time_grid, 0), tf.float32
+        )
+        alive = 1.0 - died_before
+
+        case1 = (
+            tf.expand_dims(event_f, 1) * died_before * surv ** 2
+            / tf.expand_dims(G_Ti, 1)
+        )
+        case2 = alive * (1.0 - surv) ** 2 / tf.expand_dims(G_tk, 0)
+
+        bs_per_sample = tf.reduce_mean(case1 + case2, axis=1)  # mean over time grid
+        return bs_per_sample  # (batch,)
+
+
+class JointCoxCalibrationLossPerSample(tf.keras.losses.Loss):
+    """Combined loss (1-λ)·CoxPH + λ·CalibLoss returning per-sample where possible.
+
+    CoxPH already returns per-sample (batch,1). Calibration component (CRPS/IBS)
+    uses PerSample variant. The result is (batch,1).
+    """
+
+    def __init__(self, calibration_loss_per_sample, lam=0.3, **kwargs):
+        super().__init__(**kwargs)
+        self.cox_loss = CoxPHLoss()
+        self.cal_loss = calibration_loss_per_sample
+        self.lam = lam
+
+    def call(self, y_true, y_pred):
+        cox = self.cox_loss(y_true=[y_true[0], y_true[1]], y_pred=y_pred)  # (batch,1)
+        cal = self.cal_loss(y_true=y_true, y_pred=y_pred)  # (batch,)
+        cal = tf.expand_dims(cal, 1)
+        return (1.0 - self.lam) * cox + self.lam * cal  # (batch,1)
