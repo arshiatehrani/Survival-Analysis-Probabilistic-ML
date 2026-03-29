@@ -4,6 +4,41 @@
 
 This fork extends the original codebase with GPU acceleration, modernized dependencies, HPC cluster support, comprehensive evaluation output, experiment tracking, and full compatibility with the paper's Tables II, III, and IV.
 
+## Table of contents
+
+- [What's Changed](#whats-changed)
+- [All 14 Models](#all-14-models)
+  - [SOTA Baselines (`train_sota_models.py`, 8 models)](#readme-toc-sota-baselines)
+  - [BNN Models (`train_bnn_models.py`, 6 models)](#readme-toc-bnn-models)
+- [Datasets](#datasets)
+- [Paper Metrics (Tables II & III)](#readme-toc-paper-metrics)
+  - [Table II — Prediction Performance](#readme-toc-table-ii)
+  - [Table III — Calibration Performance](#readme-toc-table-iii)
+  - [Extended Metrics](#readme-toc-extended-metrics)
+- [Novel Extensions (Beyond the Original Paper)](#novel-extensions-beyond-the-original-paper)
+  - [1. Alternative Model Backbones](#1-alternative-model-backbones)
+  - [2. Calibration-Aware Loss Functions](#2-calibration-aware-loss-functions)
+  - [3. Post-Hoc Calibration Analysis](#3-post-hoc-calibration-analysis)
+  - [4. Uncertainty-Aware Training (Self-Paced Curriculum Learning)](#readme-toc-uncertainty-training)
+  - [Additional Analysis Tools](#readme-toc-additional-analysis-tools)
+- [Quick Start](#quick-start)
+  - [Local Setup](#local-setup)
+  - [Training All 14 Models](#training-all-14-models)
+  - [Training Specific Models/Datasets](#readme-toc-training-specific)
+  - [BNN-Specific Flags](#bnn-specific-flags)
+  - [With Experiment Tracking](#with-experiment-tracking)
+  - [HPC Cluster (SLURM)](#hpc-cluster-slurm)
+- [Output Files](#output-files)
+  - [CSV Column Reference](#csv-column-reference)
+  - [Reading Results](#reading-results)
+- [Project Structure](#project-structure)
+- [Hyperparameter Tuning](#hyperparameter-tuning)
+  - [Two modes](#readme-toc-tuning-two-modes)
+  - [Automated workflow (Bayesian optimization)](#readme-toc-tuning-automated)
+  - [Manual tuning (optional)](#readme-toc-tuning-manual)
+- [Citation](#citation)
+- [License](#license)
+
 ## What's Changed
 
 **Dependency & Compatibility Updates**
@@ -49,6 +84,7 @@ This fork extends the original codebase with GPU acceleration, modernized depend
 
 The paper evaluates **14 models** split across two training scripts. Without any argparse arguments, running both scripts trains all 14 models on all 4 datasets.
 
+<a id="readme-toc-sota-baselines"></a>
 ### SOTA Baselines — `train_sota_models.py` (8 models)
 
 | Model | Paper Reference | Framework | Epochs | Config |
@@ -62,6 +98,7 @@ The paper evaluates **14 models** split across two training scripts. Without any
 | BayCox | [7] Qi et al. | PyTorch | **5000** (patience 50) | `configs/baycox/` |
 | BayMTLR | [7] Qi et al. | PyTorch | **1000** (patience 50) | `configs/baymtlr/` |
 
+<a id="readme-toc-bnn-models"></a>
 ### BNN Models — `train_bnn_models.py` (6 models)
 
 | Model | Paper Section | Framework | Epochs | Config |
@@ -84,8 +121,10 @@ The paper evaluates **14 models** split across two training scripts. Without any
 | SUPPORT | 8,873 | 14 | 32% | Hospitalized adults survival [20] |
 | MIMIC-IV | 38,520 | 91 | 67% | ICU patient records [21] |
 
+<a id="readme-toc-paper-metrics"></a>
 ## Paper Metrics (Tables II & III)
 
+<a id="readme-toc-table-ii"></a>
 ### Table II — Prediction Performance
 
 | Metric | Description | Direction |
@@ -95,6 +134,7 @@ The paper evaluates **14 models** split across two training scripts. Without any
 | MAE_PO | Mean Absolute Error (pseudo-obs) | ↓ lower is better |
 | IBS | Integrated Brier Score | ↓ lower is better |
 
+<a id="readme-toc-table-iii"></a>
 ### Table III — Calibration Performance
 
 | Metric | Description | Direction |
@@ -105,6 +145,7 @@ The paper evaluates **14 models** split across two training scripts. Without any
 
 D-Cal values marked with `*` indicate the model is NOT D-calibrated (p ≤ 0.05). C-Cal shows `-` for deterministic models (cox, coxnet, coxboost, rsf, dsm, dcm).
 
+<a id="readme-toc-extended-metrics"></a>
 ### Extended Metrics
 
 | Metric | Description |
@@ -161,6 +202,7 @@ python experiments/exp_posthoc_calibration.py \
 sbatch run_exp_posthoc_calibration.sh
 ```
 
+<a id="readme-toc-uncertainty-training"></a>
 ### 4. Uncertainty-Aware Training (Self-Paced Curriculum Learning)
 
 Adapts self-paced curriculum learning to survival analysis. After a warmup phase, the model's own MC-dropout variance estimates per-sample uncertainty, which is used to:
@@ -190,6 +232,7 @@ DATASET="METABRIC" MODEL="vi" LOSS="crps" SEEDS="0 1 2" sbatch run_exp_uncertain
 
 **Results:** `results/{experiment_name}/{dataset}/{unc_config}/seed_{seed}/` with `metrics.csv`, `training_curves.csv`, `uncertainty_history.csv`, and `config.json`.
 
+<a id="readme-toc-additional-analysis-tools"></a>
 ### Additional Analysis Tools
 
 | Script | Purpose |
@@ -221,6 +264,7 @@ python train_sota_models.py
 python train_bnn_models.py
 ```
 
+<a id="readme-toc-training-specific"></a>
 ### Training Specific Models/Datasets
 
 ```bash
@@ -368,6 +412,7 @@ print(bnn.pivot_table(values='CI', index='ModelName', columns='DatasetName'))
 
 Per the paper (Appendix B): *"We use Bayesian optimization [25] to tune hyperparameters over ten iterations on the validation set, adopting the hyperparameters leading to the highest concordance index (CItd)."* Hyperparameters are tuned **per dataset**.
 
+<a id="readme-toc-tuning-two-modes"></a>
 ### Two modes
 
 | Mode | Description |
@@ -375,6 +420,7 @@ Per the paper (Appendix B): *"We use Bayesian optimization [25] to tune hyperpar
 | **Pre-tuned (default)** | Use configs in `configs/mlp/*.yaml` (paper Table V). No tuning step. |
 | **Bayesian optimization** | Run tuning first, save best config, then train. Requires `WANDB_API_KEY`. |
 
+<a id="readme-toc-tuning-automated"></a>
 ### Automated workflow (Bayesian optimization)
 
 ```bash
@@ -385,6 +431,7 @@ python train_bnn_models.py --datasets SUPPORT --models vi --tune
 TUNE_MODE=1 sbatch run_baysurv_job.sh
 ```
 
+<a id="readme-toc-tuning-manual"></a>
 ### Manual tuning (optional)
 
 ```bash
