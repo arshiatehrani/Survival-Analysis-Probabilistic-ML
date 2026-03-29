@@ -116,6 +116,90 @@ D-Cal values marked with `*` indicate the model is NOT D-calibrated (p ≤ 0.05)
 
 AUC and 1-Cal may show `N/A` when the test set has insufficient class balance at that time point.
 
+## Novel Extensions (Beyond the Original Paper)
+
+This fork goes beyond reproducing the paper and introduces four novel experimental directions, each with its own experiment scripts, multi-seed runners, comparison pipelines, and statistical significance testing.
+
+### 1. Alternative Model Backbones
+
+Additional architectures benchmarked alongside the paper's original 14 models, providing a broader comparison of survival analysis approaches.
+
+### 2. Calibration-Aware Loss Functions
+
+Instead of training with the standard Cox partial likelihood, models are trained with loss functions that directly optimize for calibration:
+
+| Loss | Description |
+|------|-------------|
+| `cox` | Standard Cox PH (baseline) |
+| `crps` | Right-censored Continuous Ranked Probability Score |
+| `ibs` | IPCW Integrated Brier Score |
+| `joint_crps` | (1-λ)·Cox + λ·CRPS |
+| `joint_ibs` | (1-λ)·Cox + λ·IBS |
+| `joint_crps_kl` | (1-λ-μ)·Cox + λ·CRPS + μ·Marginal KL |
+
+```bash
+# Single run
+python experiments/exp_calibration_loss.py --dataset METABRIC --loss-type joint_crps --lambda-val 0.3 --seed 0
+
+# Full sweep (10 seeds × all loss configs)
+sbatch run_exp_calibration.sh
+```
+
+**Results:** `results/{experiment_name}/{dataset}/{loss_config}/seed_{seed}/`
+
+### 3. Post-Hoc Calibration Analysis
+
+Applies post-hoc calibration methods (Temperature Scaling, Isotonic Regression) to trained models and evaluates before/after calibration performance on the test set.
+
+```bash
+# Apply post-hoc calibration to a trained model
+python experiments/exp_posthoc_calibration.py \
+    --source-experiment 20260316_calibration_loss \
+    --dataset METABRIC --loss-config cox --seed 0
+
+# Full sweep
+sbatch run_exp_posthoc_calibration.sh
+```
+
+### 4. Uncertainty-Aware Training (Self-Paced Curriculum Learning)
+
+Adapts self-paced curriculum learning to survival analysis. After a warmup phase, the model's own MC-dropout variance estimates per-sample uncertainty, which is used to:
+
+| Mode | Strategy |
+|------|----------|
+| `none` | Standard training (baseline) |
+| `soft` | Scale loss by exp(-T · u_i) — down-weight uncertain samples |
+| `curriculum` | Keep only lowest-uncertainty fraction, ramp from `curriculum_start` → `curriculum_end` |
+| `both` | Soft weighting applied to the curriculum-filtered subset |
+
+| Hyperparameter | Default | Description |
+|----------------|---------|-------------|
+| `--warmup-epochs` | 2 | Standard training epochs before SPCL activates |
+| `--mc-passes` | 5 | MC forward passes for uncertainty estimation |
+| `--temperature` | 2.0 | Weighting strength: w_i = exp(-T · u_i) |
+| `--curriculum-start` | 0.55 | Fraction of data kept at first active epoch |
+| `--curriculum-end` | 1.0 | Fraction at final epoch |
+
+```bash
+# Single run (defaults: METABRIC, mcd1, CRPS loss, seed 0)
+sbatch run_exp_uncertainty.sh
+
+# Explicit configuration
+DATASET="METABRIC" MODEL="vi" LOSS="crps" SEEDS="0 1 2" sbatch run_exp_uncertainty.sh
+```
+
+**Results:** `results/{experiment_name}/{dataset}/{unc_config}/seed_{seed}/` with `metrics.csv`, `training_curves.csv`, `uncertainty_history.csv`, and `config.json`.
+
+### Additional Analysis Tools
+
+| Script | Purpose |
+|--------|---------|
+| `experiments/compare_runs.py` | Aggregate calibration-loss results: summary tables, Pareto plots, bar charts, box plots, significance tests |
+| `experiments/compare_posthoc.py` | Compare before/after post-hoc calibration |
+| `experiments/compare_uncertainty_runs.py` | Aggregate uncertainty training results with uncertainty evolution plots and mode comparison |
+| `experiments/exp_mc_samples.py` | MC sample efficiency: evaluate CI/IBS/D-Cal vs number of MC samples at inference |
+| `experiments/plot_mc_efficiency.py` | Plot MC efficiency curves |
+
 ## Quick Start
 
 ### Local Setup
@@ -231,24 +315,39 @@ print(bnn.pivot_table(values='CI', index='ModelName', columns='DatasetName'))
 ```
 ├── train_sota_models.py       # Train 8 SOTA baseline models
 ├── train_bnn_models.py        # Train 6 BNN models (paper's main contribution)
-├── run_baysurv_job.sh         # SLURM job script for HPC clusters
+├── run_baysurv_job.sh         # SLURM job script — main paper reproduction
+├── run_exp_calibration.sh     # SLURM job script — calibration-aware loss sweep
+├── run_exp_posthoc_calibration.sh  # SLURM job script — post-hoc calibration
+├── run_exp_mc_samples.sh      # SLURM job script — MC sample efficiency
+├── run_exp_uncertainty.sh     # SLURM job script — uncertainty-aware training
 ├── paths.py                   # Project path configuration
 ├── configs/                   # Per-model, per-dataset YAML hyperparameters
 │   ├── cox/ coxnet/ coxboost/ rsf/    # Classical/tree models
 │   ├── dsm/ dcm/                       # Deep learning baselines
 │   ├── baycox/ baymtlr/                # BNN literature benchmarks
 │   └── mlp/                            # Shared config for MLP/VI/MCD/SNGP
+├── experiments/
+│   ├── exp_calibration_loss.py         # Calibration-aware loss experiment
+│   ├── compare_runs.py                 # Compare calibration-loss results
+│   ├── exp_posthoc_calibration.py      # Post-hoc calibration experiment
+│   ├── compare_posthoc.py              # Compare post-hoc results
+│   ├── exp_mc_samples.py               # MC sample efficiency experiment
+│   ├── plot_mc_efficiency.py           # Plot MC efficiency curves
+│   ├── exp_uncertainty_training.py     # Uncertainty-aware training (SPCL)
+│   └── compare_uncertainty_runs.py     # Compare uncertainty training results
 ├── tools/
 │   ├── sota_builder.py        # SOTA model constructors (pycox wrappers)
 │   ├── baysurv_builder.py     # BNN models + SpectralNorm + RFGP layers
 │   ├── baysurv_trainer.py     # BNN training loop (TF/Keras)
+│   ├── uncertainty_trainer.py # Uncertainty-aware trainer (extends baysurv_trainer)
 │   ├── bnn_isd_trainer.py     # BayCox/BayMTLR training loop (PyTorch)
 │   ├── results_generator.py   # Generic evaluation, plots, TeeLogger
 │   ├── evaluator.py           # Survival evaluation metrics
 │   ├── data_loader.py         # Dataset loaders
 │   └── Evaluations/           # Concordance, Brier, AUC, calibration modules
 ├── utility/
-│   ├── loss.py                # Cox PH loss functions
+│   ├── loss.py                # Loss functions (Cox, CRPS, IBS, Joint, per-sample variants)
+│   ├── risk.py                # InputFunction, WeightedInputFunction (data pipeline)
 │   ├── bnn_isd_models.py      # BayesCox, BayesMTLR architectures
 │   ├── survival.py            # Survival curve computation
 │   ├── training.py            # Data loading, scaling, splitting
