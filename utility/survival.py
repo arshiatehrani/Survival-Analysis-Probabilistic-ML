@@ -299,6 +299,13 @@ def survival_probability_calibration(surv_preds: pd.DataFrame,
                                      times,
                                      events,
                                      t0: float):
+    _crc_fit_errors = (
+        LifelinesConvergenceError,
+        np.linalg.LinAlgError,
+        ValueError,
+        RuntimeError,
+    )
+
     def safe_log(x, eps=1e-10):
         result = np.where(x > eps, x, -10)
         np.log(result, out=result, where=result > 0)
@@ -306,56 +313,88 @@ def survival_probability_calibration(surv_preds: pd.DataFrame,
 
     def ccl(p):
         return safe_log(-safe_log(1-p))
-    
+
     T = "Survival_time"
     E = "Event"
-        
-    predictions_at_t0 = np.clip(1 - surv_preds[t0].squeeze(), 1e-10, 1 - 1e-10)
 
-    # create new dataset with the predictions
-    prediction_df = pd.DataFrame({"ccl_at_%d" % t0: ccl(predictions_at_t0), T: times, E: events})
+    predictions_at_t0 = np.clip(
+        np.asarray(surv_preds[t0]).squeeze().astype(np.float64, copy=False),
+        1e-10,
+        1 - 1e-10,
+    ).ravel()
+    t_obs = np.asarray(times, dtype=np.float64).ravel()
+    e_obs = np.asarray(events).astype(int).ravel()
+    if not (len(predictions_at_t0) == len(t_obs) == len(e_obs)):
+        raise ValueError(
+            "survival_probability_calibration: surv_preds rows, times, and events must align."
+        )
 
-    # Fit flexible spline (Royston–Crowther–Clements style); may fail on large / noisy cohorts.
-    regressors = {"beta_": ["ccl_at_%d" % t0], "gamma0_": "1", "gamma1_": "1", "gamma2_": "1"}
-    crc = None
-    last_err: Optional[Exception] = None
-    # Stronger penalizer improves numerical stability (e.g. MIMIC); keep knots=3 for regressors shape.
-    fit_tries = [(3, 1e-6), (3, 1e-3), (3, 1e-1), (3, 1.0), (3, 10.0), (3, 100.0)]
-    for knots, penalizer in fit_tries:
-        crc_try = CRCSplineFitter(knots, penalizer=penalizer)
-        try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
-                crc_try.fit_right_censoring(prediction_df, T, E, regressors=regressors)
-            crc = crc_try
-            break
-        except LifelinesConvergenceError as e:
-            last_err = e
+    ccl_col = np.asarray(ccl(predictions_at_t0), dtype=np.float64).ravel()
+    ccl_col = np.nan_to_num(ccl_col, nan=0.0, posinf=10.0, neginf=-10.0)
+
+    prediction_df = pd.DataFrame(
+        {"ccl_at_%d" % t0: ccl_col, T: t_obs, E: e_obs}
+    )
+
+    # Nearly constant risk scores make the spline ill-conditioned; skip fitting.
+    if np.std(ccl_col) < 1e-10 or len(prediction_df) < 20:
+        crc = None
+        last_err: Optional[Exception] = None
+    else:
+        regressors = {"beta_": ["ccl_at_%d" % t0], "gamma0_": "1", "gamma1_": "1", "gamma2_": "1"}
+        crc = None
+        last_err = None
+        # Large test sets (e.g. MIMIC): fit spline on a fixed subsample for stability / speed.
+        n_fit = len(prediction_df)
+        rng = np.random.RandomState(42)
+        if n_fit > 10_000:
+            fit_idx = rng.choice(n_fit, size=8_000, replace=False)
+            fit_df = prediction_df.iloc[fit_idx].reset_index(drop=True)
+        else:
+            fit_df = prediction_df
+
+        fit_tries = [(3, 1e-6), (3, 1e-3), (3, 1e-1), (3, 1.0), (3, 10.0), (3, 100.0), (3, 1000.0)]
+        for knots, penalizer in fit_tries:
+            crc_try = CRCSplineFitter(knots, penalizer=penalizer)
+            try:
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore")
+                    crc_try.fit_right_censoring(fit_df, T, E, regressors=regressors)
+                crc = crc_try
+                break
+            except _crc_fit_errors as e:
+                last_err = e
 
     x = np.linspace(
-        np.clip(predictions_at_t0.min() - 0.01, 0, 1),
-        np.clip(predictions_at_t0.max() + 0.01, 0, 1),
+        np.clip(float(predictions_at_t0.min()) - 0.01, 0, 1),
+        np.clip(float(predictions_at_t0.max()) + 0.01, 0, 1),
         100,
     )
     if crc is not None:
-        y = 1 - crc.predict_survival_function(
-            pd.DataFrame({"ccl_at_%d" % t0: ccl(x)}), times=[t0]
-        ).T.squeeze()
-        deltas = (
-            (1 - crc.predict_survival_function(prediction_df, times=[t0])).T.squeeze()
-            - predictions_at_t0
-        ).abs()
-    else:
-        warnings.warn(
-            "CRC spline calibration did not converge (t0=%s); last error: %s. "
-            "Using identity calibration curve and zero per-sample residuals (ICI uninformative for this horizon)."
-            % (t0, last_err),
-            RuntimeWarning,
-            stacklevel=2,
-        )
+        try:
+            y = 1 - crc.predict_survival_function(
+                pd.DataFrame({"ccl_at_%d" % t0: ccl(x)}), times=[t0]
+            ).T.squeeze()
+            deltas = (
+                (1 - crc.predict_survival_function(prediction_df, times=[t0])).T.squeeze()
+                - predictions_at_t0
+            ).abs()
+        except _crc_fit_errors as e:
+            crc = None
+            last_err = e
+
+    if crc is None:
+        if last_err is not None:
+            warnings.warn(
+                "CRC spline calibration unavailable (t0=%s): %s. "
+                "Using identity calibration curve and zero per-sample residuals (ICI uninformative for this horizon)."
+                % (t0, last_err),
+                RuntimeWarning,
+                stacklevel=2,
+            )
         y = np.clip(x, 0.0, 1.0)
         deltas = np.zeros_like(predictions_at_t0, dtype=float)
-    
+
     return x, y, predictions_at_t0, deltas
 
 def compute_survival_scale(risk_scores, t_train, e_train):
