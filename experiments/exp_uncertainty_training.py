@@ -210,7 +210,7 @@ if __name__ == "__main__":
     # --- Uncertainty-aware training args ---
     parser.add_argument("--unc-mode", default="soft", choices=UNC_MODES,
                         help="Uncertainty training strategy: none|soft|curriculum|both")
-    parser.add_argument("--warmup-epochs", type=int, default=10,
+    parser.add_argument("--warmup-epochs", type=int, default=2,
                         help="Epochs of standard training before uncertainty kicks in")
     parser.add_argument("--mc-passes", type=int, default=5,
                         help="MC forward passes for uncertainty estimation per epoch")

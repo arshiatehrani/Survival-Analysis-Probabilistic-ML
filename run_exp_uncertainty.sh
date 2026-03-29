@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=unc_train
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-00:30:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
@@ -46,7 +46,7 @@
 #
 # Flags reference (defaults from the original uncertainty code):
 #   --unc-mode        none|soft|curriculum|both   (default: soft)
-#   --warmup-epochs   int                         (default: 10)
+#   --warmup-epochs   int                         (default: 2)
 #   --mc-passes       int                         (default: 5)
 #   --temperature     float                       (default: 2.0)
 #   --curriculum-start float                      (default: 0.55)
@@ -170,37 +170,37 @@ for DS in $DATASETS; do
         echo "========================================"
 
         # 1. Baseline: no uncertainty (standard training)
-        run_unc_exp "$DS" "none" "$LOSS" 0.3 2.0 10 5 0.55 1.0 "$SEED"
+        run_unc_exp "$DS" "none" "$LOSS" 0.3 2.0 2 5 0.55 1.0 "$SEED"
 
         # 2. Soft weighting (default hyperparams from OG uncertainty code)
-        run_unc_exp "$DS" "soft" "$LOSS" 0.3 2.0 10 5 0.55 1.0 "$SEED"
+        run_unc_exp "$DS" "soft" "$LOSS" 0.3 2.0 2 5 0.55 1.0 "$SEED"
 
         # 3. Hard curriculum
-        run_unc_exp "$DS" "curriculum" "$LOSS" 0.3 2.0 10 5 0.55 1.0 "$SEED"
+        run_unc_exp "$DS" "curriculum" "$LOSS" 0.3 2.0 2 5 0.55 1.0 "$SEED"
 
         # 4. Both (soft + curriculum)
-        run_unc_exp "$DS" "both" "$LOSS" 0.3 2.0 10 5 0.55 1.0 "$SEED"
+        run_unc_exp "$DS" "both" "$LOSS" 0.3 2.0 2 5 0.55 1.0 "$SEED"
 
         # ---- SWEEPS (uncomment when ready) ----
 
         ## Temperature sweep (soft)
         # for T in 1.0 2.0 5.0; do
-        #     run_unc_exp "$DS" "soft" "$LOSS" 0.3 "$T" 10 5 0.55 1.0 "$SEED"
+        #     run_unc_exp "$DS" "soft" "$LOSS" 0.3 "$T" 2 5 0.55 1.0 "$SEED"
         # done
 
         ## Curriculum start sweep
         # for CS in 0.3 0.55 0.75; do
-        #     run_unc_exp "$DS" "curriculum" "$LOSS" 0.3 2.0 10 5 "$CS" 1.0 "$SEED"
+        #     run_unc_exp "$DS" "curriculum" "$LOSS" 0.3 2.0 2 5 "$CS" 1.0 "$SEED"
         # done
 
         ## Warmup epoch sensitivity
-        # for W in 5 10 20; do
+        # for W in 2 5 10; do
         #     run_unc_exp "$DS" "soft" "$LOSS" 0.3 2.0 "$W" 5 0.55 1.0 "$SEED"
         # done
 
         ## MC passes sensitivity
         # for MC in 3 5 10; do
-        #     run_unc_exp "$DS" "soft" "$LOSS" 0.3 2.0 10 "$MC" 0.55 1.0 "$SEED"
+        #     run_unc_exp "$DS" "soft" "$LOSS" 0.3 2.0 2 "$MC" 0.55 1.0 "$SEED"
         # done
 
     done
