@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-02:00:00
+#SBATCH --time=0-16:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
@@ -8,21 +8,20 @@
 #
 # --- GPU config: uncomment ONE block below ---
 #
-# [ALT] MIG 3g.40gb (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
-##SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
-##SBATCH --cpus-per-task=6
-##SBATCH --mem=64G
+# [ACTIVE] MIG 3g.40gb (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
+#SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=64G
 #
-# [ALT] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- use if 1g.10gb OOMs on BNN models
+# [ALT] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
 ##SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
 ##SBATCH --cpus-per-task=6
 ##SBATCH --mem=64G
 #
-# [ACTIVE] MIG 1g.10gb (1/8 H100, 10GB VRAM) -- fastest queue, may OOM on BNN models
-# If BNN training (mcd1/mcd2/mcd3/vi) gets OOM-killed, switch to 2g.20gb or 3g.40gb below
-#SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
-#SBATCH --cpus-per-task=6
-#SBATCH --mem=32G
+# [ALT] MIG 1g.10gb (1/8 H100, 10GB VRAM) -- fastest queue, may OOM on BNN models
+##SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
+##SBATCH --cpus-per-task=6
+##SBATCH --mem=32G
 #
 # [ALT] Full H100 (80GB VRAM) -- for larger/novel models later
 ##SBATCH --gpus=h100:1
@@ -151,9 +150,6 @@ mkdir -p models results
 #   results/*_cri_sample*.pdf          - Credible interval plots (Figure 2, VI/MCD/BayCox/BayMTLR)
 #   models/                            - Saved model weights
 
-# echo "Starting train_sota_models.py at $(date)"
-# python train_sota_models.py
-
 ############################
 # TUNE_MODE: 0 = use pre-tuned configs (configs/mlp/*.yaml) [default]
 #            1 = run Bayesian optimization first, then train
@@ -164,7 +160,7 @@ mkdir -p models results
 TUNE_MODE=${TUNE_MODE:-0}
 echo "TUNE_MODE=$TUNE_MODE (0=pre-tuned, 1=Bayesian optimization)"
 
-# DEBUG_MODE: 0=normal (VI), 1=fast debug (MLP on SUPPORT). For debug: DEBUG_MODE=1 sbatch run_baysurv_job.sh
+# DEBUG_MODE: 0=normal, 1=fast debug (MLP on SUPPORT). For debug: DEBUG_MODE=1 sbatch run_baysurv_job.sh
 DEBUG_MODE=${DEBUG_MODE:-0}
 echo "DEBUG_MODE=$DEBUG_MODE | TUNE_MODE=$TUNE_MODE"
 
@@ -175,11 +171,11 @@ elif [ "$TUNE_MODE" = "1" ]; then
   echo "Starting Bayesian optimization + training at $(date)"
   python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10
 else
-  # echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
-  # python train_bnn_models.py --datasets SUPPORT --models vi
+  echo "Starting train_sota_models.py at $(date)"
+  python train_sota_models.py
+
   echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
-  # python train_bnn_models.py --datasets SUPPORT --models transformer_mcd
-  python train_bnn_models.py --datasets METABRIC SUPPORT --models saint_mcd
+  python train_bnn_models.py
 fi
 
 echo "Job finished on $(date)"
