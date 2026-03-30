@@ -40,9 +40,12 @@ export PYTHONWARNINGS="ignore::UserWarning:rpy2.rinterface"
 # Wandb: set your API key here to enable --wandb tracking from the cluster.
 # Get your key from https://wandb.ai/authorize
 # export WANDB_API_KEY="your-key-here"
+#
+# GPU fail-fast (see section 4): training expects a usable GPU. To force-run on CPU anyway:
+#   ALLOW_CPU=1 sbatch run_baysurv_job.sh
 
 echo "Job started on $(date)"
-nvidia-smi
+nvidia-smi || echo "WARNING: nvidia-smi failed before modules/venv (driver or no GPU node?)"
 
 ############################
 # 1. Load required modules #
@@ -86,11 +89,50 @@ pip install --no-index tf-keras
 pip check
 
 ############################
-# 4. Sanity checks #
+# 4. Sanity checks + fail-fast if no usable GPU #
 ############################
+# train_bnn_models.py needs TensorFlow on GPU; train_sota_models.py needs PyTorch CUDA for
+# BayCox, BayMTLR, DSM, DCM, etc. Exit before long runs if either stack sees no GPU.
 
 python -V
-python -c "import tensorflow as tf; print('TF:', tf.__version__, '| GPUs:', tf.config.list_physical_devices('GPU'))"
+
+if [ "${ALLOW_CPU:-0}" = "1" ]; then
+  echo "ALLOW_CPU=1: skipping strict GPU checks (BNN/SOTA may run on CPU)."
+  python -c "import tensorflow as tf; print('TF:', tf.__version__, '| GPUs:', tf.config.list_physical_devices('GPU'))"
+  python -c "import torch; print('Torch cuda_available:', torch.cuda.is_available())"
+else
+  echo "Verifying GPU (set ALLOW_CPU=1 to skip)..."
+  if ! nvidia-smi -L 2>/dev/null | grep -q '^GPU '; then
+    echo "ERROR: No GPU visible to nvidia-smi. Use a GPU partition and #SBATCH --gpus=..., or set ALLOW_CPU=1." >&2
+    exit 1
+  fi
+  python - <<'PY' || { echo "ERROR: GPU verification failed (see messages above)." >&2; exit 1; }
+import sys
+import tensorflow as tf
+
+gpus = tf.config.list_physical_devices("GPU")
+if not gpus:
+    print(
+        "ERROR: TensorFlow reports zero GPUs — train_bnn_models.py would use CPU.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+print("OK: TensorFlow sees", len(gpus), "GPU(s):", gpus)
+
+try:
+    import torch
+except ImportError as exc:
+    print("ERROR: PyTorch not importable:", exc, file=sys.stderr)
+    sys.exit(1)
+if not torch.cuda.is_available():
+    print(
+        "ERROR: torch.cuda.is_available() is False — SOTA torch models (BayCox, BayMTLR, DSM, DCM, …) would use CPU.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+print("OK: PyTorch CUDA:", torch.cuda.get_device_name(0))
+PY
+fi
 
 echo "Current directory: $(pwd)"
 echo "Data files in $BAYSURV_DATA_DIR:"
