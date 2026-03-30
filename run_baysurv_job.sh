@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-08:00:00
+#SBATCH --time=0-04:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
@@ -8,15 +8,15 @@
 #
 # --- GPU config: uncomment ONE block below ---
 #
-# [ACTIVE] MIG 3g.40gb (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
-#SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem=64G
-#
-# [ALT] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
-##SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
-##SBATCH --cpus-per-task=6
+# [ALT] MIG 3g.40gb (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
+##SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
+##SBATCH --cpus-per-task=12
 ##SBATCH --mem=64G
+#
+# [ACTIVE] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
+#SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
+#SBATCH --cpus-per-task=6
+#SBATCH --mem=64G
 #
 # [ALT] MIG 1g.10gb (1/8 H100, 10GB VRAM) -- fastest queue, may OOM on BNN models
 ##SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
