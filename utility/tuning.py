@@ -85,7 +85,7 @@ def get_coxboost_sweep_config():
                 "values": [float(x) for x in np.linspace(0.1, 0.5, 5, endpoint=True)]
             },
             "max_features": {
-                "values": [None, "auto", "sqrt", "log2"]
+                "values": [None, "sqrt", "log2"]
             },
             "dropout_rate": {
                 "values": [float(x) for x in np.linspace(0.0, 0.9, 10, endpoint=True)]
@@ -283,7 +283,7 @@ def get_rsf_sweep_config():
                 "values": [float(x) for x in np.linspace(0.1, 0.5, 5, endpoint=True)]
             },
             "max_features": {
-                "values": [None, 'auto', 'sqrt', 'log2']
+                "values": [None, "sqrt", "log2"]
             },
         }
     }

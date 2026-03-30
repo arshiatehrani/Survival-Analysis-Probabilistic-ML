@@ -35,7 +35,9 @@ def make_rsf_model(config):
     max_depth = config['max_depth']
     min_samples_split = config['min_samples_split']
     min_samples_leaf =  config['min_samples_leaf']
-    max_features = config['max_features']
+    max_features = config["max_features"]
+    if max_features == "auto":
+        max_features = "sqrt"
     return RandomSurvivalForest(random_state=0,
                                 n_estimators=n_estimators,
                                 max_depth=max_depth,
@@ -65,7 +67,9 @@ def make_coxboost_model(config):
     loss = config['loss']
     min_samples_split = config['min_samples_split']
     min_samples_leaf = config['min_samples_leaf']
-    max_features = config['max_features']
+    max_features = config["max_features"]
+    if max_features == "auto":
+        max_features = "sqrt"
     dropout_rate = config['dropout_rate']
     subsample = config['subsample']
     return GradientBoostingSurvivalAnalysis(n_estimators=n_estimators,
