@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=elec888_train
-#SBATCH --time=0-04:00:00
+#SBATCH --time=0-08:00:00
 #SBATCH --account=def-bakhshai
 #SBATCH --ntasks-per-node=1
 #SBATCH --mail-user=arshia.tehrani1380@gmail.com
@@ -8,15 +8,15 @@
 #
 # --- GPU config: uncomment ONE block below ---
 #
-# [ALT] MIG 3g.40gb (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
-##SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
-##SBATCH --cpus-per-task=12
-##SBATCH --mem=64G
-#
-# [ACTIVE] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
-#SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
-#SBATCH --cpus-per-task=6
+# [ACTIVE] MIG 3g.40gb (3/8 H100, 40GB VRAM) -- faster queue, plenty for current models
+#SBATCH --gpus=nvidia_h100_80gb_hbm3_3g.40gb:1
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=64G
+#
+# [ALT] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
+##SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
+##SBATCH --cpus-per-task=6
+##SBATCH --mem=64G
 #
 # [ALT] MIG 1g.10gb (1/8 H100, 10GB VRAM) -- fastest queue, may OOM on BNN models
 ##SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
@@ -52,37 +52,11 @@ nvidia-smi || echo "WARNING: nvidia-smi failed before modules/venv (driver or no
 ############################
 
 module load python/3.11.5
-module load arrow
-# NOTE: opencv removed — not used by any Python code, and it transitively loads
-# cudacore/12.9.1 which conflicts with cuda/12.6 (libcusparse undefined symbol).
 module load cuda/12.6
 module load cudnn
+module load arrow
+module load opencv/4.13.0
 module load r/4.5.0
-
-# TensorFlow GPU discovery: venv + pip TF often need module CUDA/cuDNN on LD_LIBRARY_PATH
-# (otherwise list_physical_devices("GPU") is empty despite nvidia-smi working).
-# CUDA_MODULE_LOADING=LAZY also reduces duplicate cuDNN/cuBLAS "already registered" noise.
-export CUDA_MODULE_LOADING=LAZY
-_cuda_ld=""
-for _d in "${EBROOTCUDA:-}/lib64" "${EBROOTCUDA:-}/lib" "${CUDA_HOME:-}/lib64" "${CUDA_HOME:-}/lib"; do
-  if [ -d "$_d" ]; then _cuda_ld="$_d"; break; fi
-done
-if [ -n "$_cuda_ld" ]; then
-  export LD_LIBRARY_PATH="$_cuda_ld:${LD_LIBRARY_PATH:-}"
-  echo "Prepended CUDA libs to LD_LIBRARY_PATH: $_cuda_ld"
-else
-  echo "WARNING: Could not find CUDA lib dir (EBROOTCUDA/CUDA_HOME). TF may see 0 GPUs."
-fi
-_cudnn_ld=""
-for _d in "${EBROOTCUDNN:-}/lib" "${EBROOTCUDNN:-}/lib64" "${CUDNN_HOME:-}/lib" "${CUDNN_HOME:-}/lib64"; do
-  if [ -d "$_d" ]; then _cudnn_ld="$_d"; break; fi
-done
-if [ -n "$_cudnn_ld" ]; then
-  export LD_LIBRARY_PATH="$_cudnn_ld:${LD_LIBRARY_PATH:-}"
-  echo "Prepended cuDNN libs to LD_LIBRARY_PATH: $_cudnn_ld"
-else
-  echo "WARNING: Could not find cuDNN lib dir (EBROOTCUDNN/CUDNN_HOME)."
-fi
 
 unset -f module ml which 2>/dev/null
 
@@ -115,24 +89,6 @@ pip install --no-index tf-keras
 pip check
 
 ############################
-# 3b. Purge cudacore/12.9 from LD_LIBRARY_PATH
-############################
-# The CC arrow module (and/or torch wheel) transitively loads cudacore/12.9.1,
-# whose libcusparse.so.12 expects libnvJitLink 12.9 symbols absent in cuda/12.6.
-# Rebuild LD_LIBRARY_PATH keeping only non-12.9 entries.
-_clean_ldpath=""
-IFS=':' read -ra _segs <<< "$LD_LIBRARY_PATH"
-for _seg in "${_segs[@]}"; do
-  case "$_seg" in
-    *cudacore/12.9*) echo "  STRIPPED: $_seg" ;;
-    *) _clean_ldpath="${_clean_ldpath:+${_clean_ldpath}:}$_seg" ;;
-  esac
-done
-export LD_LIBRARY_PATH="$_clean_ldpath"
-echo "LD_LIBRARY_PATH after cudacore/12.9 purge (first 600 chars):"
-echo "  ${LD_LIBRARY_PATH:0:600}"
-
-############################
 # 4. Sanity checks + fail-fast if no usable GPU #
 ############################
 # train_bnn_models.py needs TensorFlow on GPU; train_sota_models.py needs PyTorch CUDA for
@@ -151,9 +107,7 @@ else
     exit 1
   fi
   python - <<'PY' || { echo "ERROR: GPU verification failed (see messages above)." >&2; exit 1; }
-import os
 import sys
-
 import tensorflow as tf
 
 gpus = tf.config.list_physical_devices("GPU")
@@ -162,14 +116,6 @@ if not gpus:
         "ERROR: TensorFlow reports zero GPUs — train_bnn_models.py would use CPU.",
         file=sys.stderr,
     )
-    print("Hints: ensure #SBATCH --gpus=... ; module load cuda cudnn ; see prepended LD_LIBRARY_PATH above.",
-          file=sys.stderr)
-    try:
-        print("TF build info:", tf.sysconfig.get_build_info(), file=sys.stderr)
-    except Exception as exc:
-        print("TF build info unavailable:", exc, file=sys.stderr)
-    _ld = os.environ.get("LD_LIBRARY_PATH", "")
-    print("LD_LIBRARY_PATH (first 800 chars):", _ld[:800], file=sys.stderr)
     sys.exit(1)
 print("OK: TensorFlow sees", len(gpus), "GPU(s):", gpus)
 
