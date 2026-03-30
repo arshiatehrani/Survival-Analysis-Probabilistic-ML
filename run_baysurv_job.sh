@@ -58,6 +58,31 @@ module load arrow
 module load opencv/4.13.0
 module load r/4.5.0
 
+# TensorFlow GPU discovery: venv + pip TF often need module CUDA/cuDNN on LD_LIBRARY_PATH
+# (otherwise list_physical_devices("GPU") is empty despite nvidia-smi working).
+# CUDA_MODULE_LOADING=LAZY also reduces duplicate cuDNN/cuBLAS "already registered" noise on some stacks.
+export CUDA_MODULE_LOADING=LAZY
+_cuda_ld=""
+for _d in "${EBROOTCUDA:-}/lib64" "${EBROOTCUDA:-}/lib" "${CUDA_HOME:-}/lib64" "${CUDA_HOME:-}/lib"; do
+  if [ -d "$_d" ]; then _cuda_ld="$_d"; break; fi
+done
+if [ -n "$_cuda_ld" ]; then
+  export LD_LIBRARY_PATH="$_cuda_ld:${LD_LIBRARY_PATH:-}"
+  echo "Prepended CUDA libs to LD_LIBRARY_PATH: $_cuda_ld"
+else
+  echo "WARNING: Could not find CUDA lib dir (EBROOTCUDA/CUDA_HOME). TF may see 0 GPUs."
+fi
+_cudnn_ld=""
+for _d in "${EBROOTCUDNN:-}/lib" "${EBROOTCUDNN:-}/lib64" "${CUDNN_HOME:-}/lib" "${CUDNN_HOME:-}/lib64"; do
+  if [ -d "$_d" ]; then _cudnn_ld="$_d"; break; fi
+done
+if [ -n "$_cudnn_ld" ]; then
+  export LD_LIBRARY_PATH="$_cudnn_ld:${LD_LIBRARY_PATH:-}"
+  echo "Prepended cuDNN libs to LD_LIBRARY_PATH: $_cudnn_ld"
+else
+  echo "WARNING: Could not find cuDNN lib dir (EBROOTCUDNN/CUDNN_HOME)."
+fi
+
 unset -f module ml which 2>/dev/null
 
 ############################
@@ -107,7 +132,9 @@ else
     exit 1
   fi
   python - <<'PY' || { echo "ERROR: GPU verification failed (see messages above)." >&2; exit 1; }
+import os
 import sys
+
 import tensorflow as tf
 
 gpus = tf.config.list_physical_devices("GPU")
@@ -116,6 +143,14 @@ if not gpus:
         "ERROR: TensorFlow reports zero GPUs — train_bnn_models.py would use CPU.",
         file=sys.stderr,
     )
+    print("Hints: ensure #SBATCH --gpus=... ; module load cuda cudnn ; see prepended LD_LIBRARY_PATH above.",
+          file=sys.stderr)
+    try:
+        print("TF build info:", tf.sysconfig.get_build_info(), file=sys.stderr)
+    except Exception as exc:
+        print("TF build info unavailable:", exc, file=sys.stderr)
+    _ld = os.environ.get("LD_LIBRARY_PATH", "")
+    print("LD_LIBRARY_PATH (first 800 chars):", _ld[:800], file=sys.stderr)
     sys.exit(1)
 print("OK: TensorFlow sees", len(gpus), "GPU(s):", gpus)
 
