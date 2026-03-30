@@ -52,16 +52,26 @@ nvidia-smi || echo "WARNING: nvidia-smi failed before modules/venv (driver or no
 ############################
 
 module load python/3.11.5
-module load cuda/12.6
-module load cudnn
 module load arrow
 module load opencv/4.13.0
 module load r/4.5.0
+
+# Load CUDA/cuDNN AFTER opencv so their libs are prepended (= higher priority)
+# opencv/4.13.0 transitively pulls in cudacore/12.9.1, whose libcusparse
+# expects libnvJitLink symbols not present in cuda/12.6. Loading cuda last
+# ensures 12.6 libs come first on LD_LIBRARY_PATH.
+module load cuda/12.6
+module load cudnn
 
 # TensorFlow GPU discovery: venv + pip TF often need module CUDA/cuDNN on LD_LIBRARY_PATH
 # (otherwise list_physical_devices("GPU") is empty despite nvidia-smi working).
 # CUDA_MODULE_LOADING=LAZY also reduces duplicate cuDNN/cuBLAS "already registered" noise on some stacks.
 export CUDA_MODULE_LOADING=LAZY
+
+# Strip any cudacore/12.9 paths that opencv may have injected — they conflict
+# with cuda/12.6 (undefined symbol in libcusparse.so.12 → libnvJitLink mismatch).
+export LD_LIBRARY_PATH=$(echo "$LD_LIBRARY_PATH" | tr ':' '\n' | grep -v 'cudacore/12\.9' | paste -sd ':')
+echo "LD_LIBRARY_PATH after cudacore/12.9 cleanup (first 600 chars): ${LD_LIBRARY_PATH:0:600}"
 _cuda_ld=""
 for _d in "${EBROOTCUDA:-}/lib64" "${EBROOTCUDA:-}/lib" "${CUDA_HOME:-}/lib64" "${CUDA_HOME:-}/lib"; do
   if [ -d "$_d" ]; then _cuda_ld="$_d"; break; fi
