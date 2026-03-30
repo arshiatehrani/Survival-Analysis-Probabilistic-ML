@@ -115,6 +115,24 @@ pip install --no-index tf-keras
 pip check
 
 ############################
+# 3b. Purge cudacore/12.9 from LD_LIBRARY_PATH
+############################
+# The CC arrow module (and/or torch wheel) transitively loads cudacore/12.9.1,
+# whose libcusparse.so.12 expects libnvJitLink 12.9 symbols absent in cuda/12.6.
+# Rebuild LD_LIBRARY_PATH keeping only non-12.9 entries.
+_clean_ldpath=""
+IFS=':' read -ra _segs <<< "$LD_LIBRARY_PATH"
+for _seg in "${_segs[@]}"; do
+  case "$_seg" in
+    *cudacore/12.9*) echo "  STRIPPED: $_seg" ;;
+    *) _clean_ldpath="${_clean_ldpath:+${_clean_ldpath}:}$_seg" ;;
+  esac
+done
+export LD_LIBRARY_PATH="$_clean_ldpath"
+echo "LD_LIBRARY_PATH after cudacore/12.9 purge (first 600 chars):"
+echo "  ${LD_LIBRARY_PATH:0:600}"
+
+############################
 # 4. Sanity checks + fail-fast if no usable GPU #
 ############################
 # train_bnn_models.py needs TensorFlow on GPU; train_sota_models.py needs PyTorch CUDA for
