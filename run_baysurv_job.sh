@@ -53,26 +53,15 @@ nvidia-smi || echo "WARNING: nvidia-smi failed before modules/venv (driver or no
 
 module load python/3.11.5
 module load arrow
-module load opencv/4.13.0
-module load r/4.5.0
-
-# opencv/4.13.0 transitively loads cudacore/12.9.1 as a dependency.
-# cudacore/12.9's libcusparse expects libnvJitLink 12.9 symbols that are absent
-# in cuda/12.6, causing "undefined symbol" ImportErrors in PyTorch.
-# Fix: unload the cudacore module, then load the correct cuda/12.6 stack.
-module unload cudacore 2>/dev/null || true
+# NOTE: opencv removed — not used by any Python code, and it transitively loads
+# cudacore/12.9.1 which conflicts with cuda/12.6 (libcusparse undefined symbol).
 module load cuda/12.6
 module load cudnn
-
-# Belt-and-suspenders: strip any leftover cudacore/12.9 paths from LD_LIBRARY_PATH
-# in case the module unload didn't fully clean up.
-export LD_LIBRARY_PATH=$(echo "$LD_LIBRARY_PATH" | sed 's|[^:]*cudacore/12\.9[^:]*:||g; s|:[^:]*cudacore/12\.9[^:]*||g; s|^[^:]*cudacore/12\.9[^:]*$||')
-echo "DEBUG: LD_LIBRARY_PATH after cudacore cleanup (first 800 chars):"
-echo "${LD_LIBRARY_PATH:0:800}"
+module load r/4.5.0
 
 # TensorFlow GPU discovery: venv + pip TF often need module CUDA/cuDNN on LD_LIBRARY_PATH
 # (otherwise list_physical_devices("GPU") is empty despite nvidia-smi working).
-# CUDA_MODULE_LOADING=LAZY also reduces duplicate cuDNN/cuBLAS "already registered" noise on some stacks.
+# CUDA_MODULE_LOADING=LAZY also reduces duplicate cuDNN/cuBLAS "already registered" noise.
 export CUDA_MODULE_LOADING=LAZY
 _cuda_ld=""
 for _d in "${EBROOTCUDA:-}/lib64" "${EBROOTCUDA:-}/lib" "${CUDA_HOME:-}/lib64" "${CUDA_HOME:-}/lib"; do
