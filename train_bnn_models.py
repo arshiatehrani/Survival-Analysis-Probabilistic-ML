@@ -375,6 +375,34 @@ if __name__ == "__main__":
             sanitized_t_test = np.delete(t_test, bad_idx, axis=0)
             sanitized_e_test = np.delete(e_test, bad_idx, axis=0)
 
+            # Guard: skip evaluation if all predictions were sanitized away
+            if sanitized_surv_preds.empty or len(sanitized_surv_preds) == 0:
+                n_dropped = len(surv_preds)
+                first_col_mean = surv_preds.iloc[:, 0].mean() if len(surv_preds) > 0 else float('nan')
+                print(f"  !! WARNING: {model_name} on {dataset_name} — all {n_dropped} predictions "
+                      f"dropped by sanitization (first-col mean={first_col_mean:.4f}). "
+                      f"Model likely degenerate. Skipping evaluation.")
+                # Record NaN metrics so the model still appears in results
+                nan_metrics = [np.nan] * 11  # CI, IBS, MAEHinge, MAEPseudo, DCalib, KM, INBLL, CCalib, ICI, TrainTime, TestTime
+                nan_metrics[-2] = train_time  # TrainTime
+                nan_metrics[-1] = test_time   # TestTime
+                res_df = pd.DataFrame(np.column_stack(nan_metrics),
+                                      columns=["CI", "IBS", "MAEHinge", "MAEPseudo", "DCalib", "KM",
+                                                "INBLL", "CCalib", "ICI", "TrainTime", "TestTime"])
+                res_df['ModelName'] = model_name
+                res_df['DatasetName'] = dataset_name
+                res_df['NParams'] = n_params if n_params else 0
+                test_results = pd.concat([test_results, res_df], axis=0)
+                training_results.to_csv(run.run_dir / "baysurv_training_results.csv", index=False)
+                test_results.to_csv(run.run_dir / "baysurv_test_results.csv", index=False)
+                if USE_WANDB:
+                    wandb.finish()
+                del trainer.checkpoint, trainer.manager
+                del trainer, model
+                tf.keras.backend.clear_session()
+                gc.collect()
+                continue
+
             # Compute metrics
             lifelines_eval = LifelinesEvaluator(sanitized_surv_preds.T, sanitized_y_test["time"], sanitized_y_test["event"], t_train, e_train)
             ibs = lifelines_eval.integrated_brier_score()
