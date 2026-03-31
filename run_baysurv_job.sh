@@ -225,6 +225,18 @@ if [ -n "${RESUME_DIR:-}" ]; then
   RESUME_FLAG="--resume-dir $RESUME_DIR"
 fi
 
+# BNN_MODELS: space-separated list of BNN models to train (default: all)
+# Example: BNN_MODELS="transformer_mcd saint_mcd" sbatch run_baysurv_job.sh
+MODELS_FLAG=""
+if [ -n "${BNN_MODELS:-}" ]; then
+  echo "BNN_MODELS=$BNN_MODELS"
+  MODELS_FLAG="--models $BNN_MODELS"
+fi
+
+# BNN_ONLY: set to 1 to skip train_sota_models.py and only run train_bnn_models.py
+# Example: BNN_ONLY=1 sbatch run_baysurv_job.sh
+BNN_ONLY=${BNN_ONLY:-0}
+
 if [ "$DEBUG_MODE" = "1" ]; then
   echo ">>> DEBUG: Running MLP on SUPPORT at $(date)"
   python train_bnn_models.py --datasets SUPPORT --models mlp $RESUME_FLAG
@@ -232,11 +244,15 @@ elif [ "$TUNE_MODE" = "1" ]; then
   echo "Starting Bayesian optimization + training at $(date)"
   python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10 $RESUME_FLAG
 else
-  echo "Starting train_sota_models.py at $(date)"
-  python train_sota_models.py --datasets $DATASETS
+  if [ "$BNN_ONLY" = "1" ]; then
+    echo "BNN_ONLY=1: skipping train_sota_models.py"
+  else
+    echo "Starting train_sota_models.py at $(date)"
+    python train_sota_models.py --datasets $DATASETS
+  fi
 
   echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
-  python train_bnn_models.py --datasets $DATASETS $RESUME_FLAG
+  python train_bnn_models.py --datasets $DATASETS $MODELS_FLAG $RESUME_FLAG
 fi
 
 echo "Job finished on $(date)"
