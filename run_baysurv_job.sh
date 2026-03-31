@@ -13,20 +13,20 @@
 ##SBATCH --cpus-per-task=12
 ##SBATCH --mem=64G
 #
-# [ACTIVE] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
-#SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem=64G
+# [ALT] MIG 2g.20gb (2/8 H100, 20GB VRAM) -- safe for all 14 models on all datasets
+##SBATCH --gpus=nvidia_h100_80gb_hbm3_2g.20gb:1
+##SBATCH --cpus-per-task=12
+##SBATCH --mem=64G
 #
 # [ALT] MIG 1g.10gb (1/8 H100, 10GB VRAM) -- fastest queue, may OOM on BNN models
 ##SBATCH --gpus=nvidia_h100_80gb_hbm3_1g.10gb:1
 ##SBATCH --cpus-per-task=6
 ##SBATCH --mem=32G
 #
-# [ALT] Full H100 (80GB VRAM) -- for larger/novel models later
-##SBATCH --gpus=h100:1
-##SBATCH --cpus-per-task=12
-##SBATCH --mem=128G
+# [ACTIVE] Full H100 (80GB VRAM) -- for larger/novel models later
+#SBATCH --gpus=h100:1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=128G
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export TF_NUM_INTRAOP_THREADS=$SLURM_CPUS_PER_TASK
