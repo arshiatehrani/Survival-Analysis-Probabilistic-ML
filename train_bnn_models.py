@@ -121,6 +121,8 @@ if __name__ == "__main__":
                         help="Use pre-tuned configs from configs/mlp/ (default)")
     parser.add_argument("--tune-iterations", type=int, default=10,
                         help="Bayesian optimization iterations when --tune (paper: 10)")
+    parser.add_argument("--resume-dir", type=str, default=None,
+                        help="Path to an existing run directory to resume into (appends results)")
     args = parser.parse_args()
 
     DATASETS = args.datasets
@@ -146,9 +148,20 @@ if __name__ == "__main__":
         datasets=DATASETS,
         models=MODELS,
         cli_args=vars(args),
+        resume_dir=args.resume_dir,
     )
     logger = TeeLogger.start(run.run_dir / "bnn_training_log.txt")
     rg = ResultsGenerator(run.run_dir)
+
+    # Load existing results if resuming into an existing directory
+    existing_test_csv = run.run_dir / "baysurv_test_results.csv"
+    existing_train_csv = run.run_dir / "baysurv_training_results.csv"
+    if args.resume_dir and existing_test_csv.exists():
+        test_results = pd.read_csv(existing_test_csv)
+        print(f"[Resume] Loaded {len(test_results)} existing rows from baysurv_test_results.csv")
+    if args.resume_dir and existing_train_csv.exists():
+        training_results = pd.read_csv(existing_train_csv)
+        print(f"[Resume] Loaded {len(training_results)} existing rows from baysurv_training_results.csv")
 
     print(f"Datasets: {DATASETS}")
     print(f"Models: {MODELS}")

@@ -217,18 +217,26 @@ echo "DEBUG_MODE=$DEBUG_MODE | TUNE_MODE=$TUNE_MODE"
 DATASETS="${DATASETS:-SUPPORT SEER METABRIC MIMIC}"
 echo "DATASETS=$DATASETS"
 
+# RESUME_DIR: set to an existing results/<run_dir> path to append new model results
+# Example: RESUME_DIR=results/20260330_155147_MIMI_mlp_sngp_mcd1_mcd2 sbatch run_baysurv_job.sh
+RESUME_FLAG=""
+if [ -n "${RESUME_DIR:-}" ]; then
+  echo "RESUME_DIR=$RESUME_DIR"
+  RESUME_FLAG="--resume-dir $RESUME_DIR"
+fi
+
 if [ "$DEBUG_MODE" = "1" ]; then
   echo ">>> DEBUG: Running MLP on SUPPORT at $(date)"
-  python train_bnn_models.py --datasets SUPPORT --models mlp
+  python train_bnn_models.py --datasets SUPPORT --models mlp $RESUME_FLAG
 elif [ "$TUNE_MODE" = "1" ]; then
   echo "Starting Bayesian optimization + training at $(date)"
-  python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10
+  python train_bnn_models.py --datasets SUPPORT --models vi --tune --tune-iterations 10 $RESUME_FLAG
 else
   echo "Starting train_sota_models.py at $(date)"
   python train_sota_models.py --datasets $DATASETS
 
   echo "Starting train_bnn_models.py at $(date) (pre-tuned configs)"
-  python train_bnn_models.py --datasets $DATASETS
+  python train_bnn_models.py --datasets $DATASETS $RESUME_FLAG
 fi
 
 echo "Job finished on $(date)"

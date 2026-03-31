@@ -82,48 +82,79 @@ class RunManager:
     """
 
     def __init__(self, base_results_dir, script_name, datasets, models,
-                 cli_args=None):
+                 cli_args=None, resume_dir=None):
         self._base = Path(base_results_dir)
         self._base.mkdir(parents=True, exist_ok=True)
 
         now = datetime.now()
         self._timestamp = now.strftime("%Y-%m-%dT%H:%M:%S")
-        ts_short = now.strftime("%Y%m%d_%H%M%S")
 
-        # Build a readable but bounded run_id
-        ds_tag = "_".join(d[:4] for d in datasets)  # META, SEER, SUPP, MIMI
-        md_tag = "_".join(models[:4])  # cap at 4 model names
-        self.run_id = f"{ts_short}_{ds_tag}_{md_tag}"
-        # Truncate to keep filesystem paths reasonable
-        if len(self.run_id) > 80:
-            self.run_id = self.run_id[:80]
+        if resume_dir is not None:
+            # Resume into an existing run directory
+            self.run_dir = Path(resume_dir)
+            if not self.run_dir.exists():
+                raise FileNotFoundError(f"--resume-dir does not exist: {resume_dir}")
+            self.run_id = self.run_dir.name
+            self.models_dir = self.run_dir / "models"
+            self.models_dir.mkdir(parents=True, exist_ok=True)
 
-        self.run_dir = self._base / self.run_id
-        self.run_dir.mkdir(parents=True, exist_ok=True)
+            # Load existing metadata and merge new models in
+            meta_path = self.run_dir / "run_metadata.json"
+            if meta_path.exists():
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    self._metadata = json.load(f)
+                # Merge new models into the list
+                for m in models:
+                    if m not in self._metadata["models"]:
+                        self._metadata["models"].append(m)
+                self._metadata["cli_args_resume"] = dict(cli_args) if cli_args else {}
+            else:
+                self._metadata = {
+                    "run_id": self.run_id, "timestamp": self._timestamp,
+                    "script": script_name, "datasets": list(datasets),
+                    "models": list(models),
+                    "cli_args": dict(cli_args) if cli_args else {},
+                    "python_version": sys.version, "per_model": {},
+                }
+            self._write_metadata()
+            print(f"[RunManager] Resuming into existing directory: {self.run_dir}")
+        else:
+            ts_short = now.strftime("%Y%m%d_%H%M%S")
 
-        self.models_dir = self.run_dir / "models"
-        self.models_dir.mkdir(parents=True, exist_ok=True)
+            # Build a readable but bounded run_id
+            ds_tag = "_".join(d[:4] for d in datasets)  # META, SEER, SUPP, MIMI
+            md_tag = "_".join(models[:4])  # cap at 4 model names
+            self.run_id = f"{ts_short}_{ds_tag}_{md_tag}"
+            # Truncate to keep filesystem paths reasonable
+            if len(self.run_id) > 80:
+                self.run_id = self.run_id[:80]
 
-        # Capture git info
-        repo_dir = Path(__file__).resolve().parent.parent
-        git_hash, git_dirty = _git_info(repo_dir)
+            self.run_dir = self._base / self.run_id
+            self.run_dir.mkdir(parents=True, exist_ok=True)
 
-        self._metadata = {
-            "run_id": self.run_id,
-            "timestamp": self._timestamp,
-            "script": script_name,
-            "datasets": list(datasets),
-            "models": list(models),
-            "cli_args": dict(cli_args) if cli_args else {},
-            "python_version": sys.version,
-            "git_hash": git_hash,
-            "git_dirty": git_dirty,
-            "per_model": {},
-        }
-        # Write initial metadata so the file exists even if the run crashes
-        self._write_metadata()
+            self.models_dir = self.run_dir / "models"
+            self.models_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f"[RunManager] Run directory: {self.run_dir}")
+            # Capture git info
+            repo_dir = Path(__file__).resolve().parent.parent
+            git_hash, git_dirty = _git_info(repo_dir)
+
+            self._metadata = {
+                "run_id": self.run_id,
+                "timestamp": self._timestamp,
+                "script": script_name,
+                "datasets": list(datasets),
+                "models": list(models),
+                "cli_args": dict(cli_args) if cli_args else {},
+                "python_version": sys.version,
+                "git_hash": git_hash,
+                "git_dirty": git_dirty,
+                "per_model": {},
+            }
+            # Write initial metadata so the file exists even if the run crashes
+            self._write_metadata()
+
+            print(f"[RunManager] Run directory: {self.run_dir}")
 
     # ------------------------------------------------------------------
     # Public API
